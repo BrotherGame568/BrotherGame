@@ -5,6 +5,27 @@
 
 ---
 
+## Modularity Principles (Read First)
+
+These rules exist so all three developers — and their AI agents — can work in parallel without breaking each other's work.
+
+**1. Domains communicate through interfaces only.**
+No domain imports code from another domain's folder. All runtime communication goes through `EventBus` events. All data access goes through `DataLayer` or `AssetManifest`. See `docs/INTERFACES.md`.
+
+**2. Interfaces are stable contracts.**
+Once an interface is marked `active` in `docs/INTERFACES.md`, it cannot change without a `cross-domain` GitHub issue and team sign-off. Treat breaking an interface the same as breaking a public API.
+
+**3. Data lives in data files, not in code.**
+Balance values, entity definitions, asset paths, and level data all live in `game/core/data/`. Code reads data — it does not contain it. This lets content change without code changes.
+
+**4. Shared vocabulary lives in core.**
+Entity types, event names, data schemas — anything referenced by more than one domain is defined in `game/core/` and owned by the architecture owner. Other domains never redefine these.
+
+**5. Scenes compose; they don't define.**
+Level scenes place and configure entities defined by core. They do not define new entity behavior inline. If a new behavior is needed, it goes in core (via cross-domain issue if needed).
+
+---
+
 ## Engine Decision
 
 **Status: TBD** — Finalize before first implementation sprint.
@@ -160,4 +181,15 @@ The architecture should leave room for additional gameplay modes and content pac
 - New world map systems (diplomacy, economy)
 - Multiplayer extension
 
-Design principle: **core systems use events/signals**, not direct calls, so new modules can subscribe without touching existing code.
+Because core systems communicate through events rather than direct calls, new modules can subscribe to existing events without touching existing code. New gameplay modes follow the same `MissionContext`/`MissionResult` handoff pattern.
+
+---
+
+## Related Documents
+
+| Document | Purpose |
+|---|---|
+| `docs/INTERFACES.md` | Canonical interface specs — read before writing any cross-domain code |
+| `docs/GAME_DESIGN.md` | Feature intentions and design decisions |
+| `docs/DECISIONS.md` | Architecture Decision Records — why things are the way they are |
+| `CLAUDE.md` | AI agent rules and project-wide constraints |

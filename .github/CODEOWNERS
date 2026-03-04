@@ -1,0 +1,29 @@
+# CODEOWNERS
+# Automatically requests review from the domain owner when their files are touched in a PR.
+# Replace @username placeholders with actual GitHub usernames.
+#
+# Format: <path pattern>  <owner(s)>
+
+# --- Fallback: architecture owner reviews anything not explicitly listed ---
+*                          @AndrewMart
+
+# --- Core systems ---
+/game/core/                @abe-mart
+
+# --- Levels ---
+/game/levels/              @AMarkMartin
+
+# --- Art & Assets ---
+/game/assets/              @abe-mart
+
+# --- Audio ---
+/game/audio/               @AMarkMartin
+
+# --- Shared docs: any owner can approve, but arch owner is default ---
+/docs/                     @AndrewMart
+
+# --- Tools: architecture owns ---
+/tools/                    @AndrewMart
+
+# --- CI / repo config: architecture owns ---
+/.github/                  @AndrewMart
