@@ -59,8 +59,8 @@ function createStartingHeroes() {
  * Must be called exactly once before launching WorldMapScene.
  */
 export function initializeGameState(gsm: IGameStateManager): void {
-  // Generate the hex map (radius 3 → ~37 hexes)
-  const hexMap = generateHexMap(3);
+  // Generate the hex map (radius 5 → ~91 hexes for a richer neighbourhood view)
+  const hexMap = generateHexMap(5);
   gsm.setHexMap(hexMap);
 
   // City starts at center

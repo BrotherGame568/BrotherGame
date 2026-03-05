@@ -7,8 +7,8 @@
  * Reads from GSM:  resources, cityState, heroRoster
  *
  * === TRANSITIONS ===
- * ← HexZoomScene   (launched when player clicks city hex)
- * → HexZoomScene   (player clicks "Return to Map")
+ * ← WorldMapScene  (launched when player clicks city hex)
+ * → WorldMapScene  (player clicks "Return to Map")
  *
  * Minimal version: view-only — no construction, no recruitment.
  * Displays building slot states, hero roster, and resource totals.
@@ -19,6 +19,7 @@ import type { IGameStateManager } from '@systems/IGameStateManager';
 import type { IHeroSystem } from '@systems/IHeroSystem';
 import type { IResourceSystem } from '@systems/IResourceSystem';
 import type { ServiceBundle } from '../../src/main';
+import cityBgUrl from '@assets/backgrounds/City_Close_View_Basic.png';
 
 export const CITY_VIEW_SCENE_KEY = 'CityViewScene';
 
@@ -42,6 +43,7 @@ export class CityViewScene extends Phaser.Scene {
   private heroSystem!: IHeroSystem;
   private resourceSystem!: IResourceSystem;
   private services!: ServiceBundle;
+  private _transitioning = false;
 
   constructor() {
     super({ key: CITY_VIEW_SCENE_KEY });
@@ -52,30 +54,32 @@ export class CityViewScene extends Phaser.Scene {
     this.gsm = data.gsm;
     this.heroSystem = data.heroSystem;
     this.resourceSystem = data.resourceSystem;
+    this._transitioning = false;
+  }
+
+  preload(): void {
+    if (!this.textures.exists('city_bg')) {
+      this.load.image('city_bg', cityBgUrl);
+    }
   }
 
   create(): void {
     const W = Number(this.game.config.width);
     const H = Number(this.game.config.height);
 
-    // ── Background ────────────────────────────────────────
-    const bg = this.add.graphics();
-    // Sky gradient (upper half)
-    bg.fillStyle(BG_SKY, 1);
-    bg.fillRect(0, 0, W, H * 0.5);
-    // City base (lower half)
-    bg.fillStyle(BG_CITY, 1);
-    bg.fillRect(0, H * 0.5, W, H * 0.5);
-    // "Ground" line
-    bg.lineStyle(2, 0x557799, 1);
-    bg.lineBetween(0, H * 0.5, W, H * 0.5);
+    // ── Background image ──────────────────────────────────
+    const bg = this.add.image(W / 2, H / 2, 'city_bg');
+    bg.setDisplaySize(W, H);
 
-    // ── Title ─────────────────────────────────────────────
+    // ── Title banner ──────────────────────────────────────
+    const titleBg = this.add.graphics();
+    titleBg.fillStyle(0x000000, 0.55);
+    titleBg.fillRoundedRect(W / 2 - 160, 8, 320, 56, 8);
     this.add.text(W / 2, 24, 'FLOATING CITY', {
-      fontSize: '22px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
+      fontSize: '22px', color: '#ffe8a0', fontFamily: 'monospace', fontStyle: 'bold',
     }).setOrigin(0.5);
     this.add.text(W / 2, 50, `Cycle ${this.gsm.cycleCount}`, {
-      fontSize: '13px', color: '#aabbcc', fontFamily: 'monospace',
+      fontSize: '13px', color: '#ccddee', fontFamily: 'monospace',
     }).setOrigin(0.5);
 
     // ── Building slots ────────────────────────────────────
@@ -98,8 +102,14 @@ export class CityViewScene extends Phaser.Scene {
     const startX = sceneW / 2 - ((slots.length - 1) * 90) / 2;
     const y = 380;
 
+    // Panel backdrop
+    const panelW = slots.length * 90 + 40;
+    const panelBg = this.add.graphics();
+    panelBg.fillStyle(0x000000, 0.5);
+    panelBg.fillRoundedRect(sceneW / 2 - panelW / 2, y - 52, panelW, 130, 8);
+
     this.add.text(sceneW / 2, y - 40, 'BUILDING SLOTS', {
-      fontSize: '13px', color: '#aabbcc', fontFamily: 'monospace', fontStyle: 'bold',
+      fontSize: '13px', color: '#ccddee', fontFamily: 'monospace', fontStyle: 'bold',
     }).setOrigin(0.5);
 
     for (let i = 0; i < slots.length; i++) {
@@ -135,10 +145,10 @@ export class CityViewScene extends Phaser.Scene {
 
   private _renderResourcePanel(x: number, y: number): void {
     const gfx = this.add.graphics();
-    gfx.fillStyle(0x222233, 0.8);
-    gfx.fillRect(x, y, 200, 180);
-    gfx.lineStyle(1, 0x445566, 1);
-    gfx.strokeRect(x, y, 200, 180);
+    gfx.fillStyle(0x000000, 0.6);
+    gfx.fillRoundedRect(x, y, 200, 180, 8);
+    gfx.lineStyle(1, 0x88776655, 0.5);
+    gfx.strokeRoundedRect(x, y, 200, 180, 8);
 
     this.add.text(x + 100, y + 14, 'RESOURCES', {
       fontSize: '12px', color: '#aabbcc', fontFamily: 'monospace', fontStyle: 'bold',
@@ -184,10 +194,10 @@ export class CityViewScene extends Phaser.Scene {
 
     const gfx = this.add.graphics();
     const panelH = Math.max(180, 40 + heroes.length * 70);
-    gfx.fillStyle(0x222233, 0.8);
-    gfx.fillRect(x, y, 260, panelH);
-    gfx.lineStyle(1, 0x445566, 1);
-    gfx.strokeRect(x, y, 260, panelH);
+    gfx.fillStyle(0x000000, 0.6);
+    gfx.fillRoundedRect(x, y, 260, panelH, 8);
+    gfx.lineStyle(1, 0x88776655, 0.5);
+    gfx.strokeRoundedRect(x, y, 260, panelH, 8);
 
     this.add.text(x + 130, y + 14, 'HERO ROSTER', {
       fontSize: '12px', color: '#aabbcc', fontFamily: 'monospace', fontStyle: 'bold',
@@ -229,33 +239,46 @@ export class CityViewScene extends Phaser.Scene {
     const by = sceneH - 50;
 
     const gfx = this.add.graphics();
-    gfx.fillStyle(0x335577, 1);
-    gfx.fillRect(bx - 90, by - 16, 180, 32);
-    gfx.lineStyle(2, 0x5588aa, 1);
-    gfx.strokeRect(bx - 90, by - 16, 180, 32);
+    gfx.fillStyle(0x000000, 0.6);
+    gfx.fillRoundedRect(bx - 100, by - 20, 200, 40, 10);
+    gfx.lineStyle(2, 0xccaa66, 0.8);
+    gfx.strokeRoundedRect(bx - 100, by - 20, 200, 40, 10);
+    gfx.setDepth(100);
 
     this.add.text(bx, by, 'Return to Map', {
-      fontSize: '14px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0.5);
+      fontSize: '14px', color: '#ffe8a0', fontFamily: 'monospace', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(101);
 
-    // Invisible interactive zone
-    const hitZone = this.add.zone(bx, by, 180, 32).setInteractive({ useHandCursor: true });
+    // Single hit zone — ONE pointerdown listener only (prevents double-fire)
+    const hitZone = this.add.zone(bx, by, 240, 56).setDepth(102).setInteractive({ useHandCursor: true });
     hitZone.on('pointerover', () => {
       gfx.clear();
-      gfx.fillStyle(0x4477aa, 1);
-      gfx.fillRect(bx - 90, by - 16, 180, 32);
-      gfx.lineStyle(2, 0x66aadd, 1);
-      gfx.strokeRect(bx - 90, by - 16, 180, 32);
+      gfx.fillStyle(0x222200, 0.7);
+      gfx.fillRoundedRect(bx - 100, by - 20, 200, 40, 10);
+      gfx.lineStyle(2, 0xffdd88, 1);
+      gfx.strokeRoundedRect(bx - 100, by - 20, 200, 40, 10);
     });
     hitZone.on('pointerout', () => {
       gfx.clear();
-      gfx.fillStyle(0x335577, 1);
-      gfx.fillRect(bx - 90, by - 16, 180, 32);
-      gfx.lineStyle(2, 0x5588aa, 1);
-      gfx.strokeRect(bx - 90, by - 16, 180, 32);
+      gfx.fillStyle(0x000000, 0.6);
+      gfx.fillRoundedRect(bx - 100, by - 20, 200, 40, 10);
+      gfx.lineStyle(2, 0xccaa66, 0.8);
+      gfx.strokeRoundedRect(bx - 100, by - 20, 200, 40, 10);
     });
-    hitZone.on('pointerdown', () => {
-      this.scene.start('HexZoomScene', this.services);
-    });
+    hitZone.on('pointerdown', () => this._returnToMap());
+
+    this.input.keyboard?.on('keydown-ESC', () => this._returnToMap());
+  }
+
+  private _returnToMap(): void {
+    if (this._transitioning) return;
+    this._transitioning = true;
+    console.log('[CityView] _returnToMap → services:', !!this.services, ' key: WorldMapScene');
+    try {
+      this.scene.start('WorldMapScene', this.services);
+    } catch (e) {
+      console.error('[CityView] scene.start failed:', e);
+      this._transitioning = false;
+    }
   }
 }

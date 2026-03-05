@@ -17,6 +17,9 @@ export class ReachSystem implements IReachSystem {
   constructor(private _gsm: IGameStateManager) {}
 
   getAccessibleHexes(origin: AxialCoord, radius: number): HexTile[] {
+    if (this._gsm.windCorridor.length === 0) {
+      return this._gsm.hexMap.filter(tile => hexDistance(tile.coord, origin) <= radius);
+    }
     const corridorSet = this._buildCorridorSet();
     return this._gsm.hexMap.filter(tile => {
       if (hexDistance(tile.coord, origin) > radius) return false;
@@ -27,6 +30,7 @@ export class ReachSystem implements IReachSystem {
   isReachable(coord: AxialCoord): boolean {
     const radius = this.getCurrentRadius();
     if (hexDistance(coord, this._gsm.cityHex) > radius) return false;
+    if (this._gsm.windCorridor.length === 0) return true;
     const corridorSet = this._buildCorridorSet();
     return corridorSet.has(hexId(coord));
   }

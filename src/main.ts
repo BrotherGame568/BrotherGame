@@ -33,7 +33,6 @@ import { initializeGameState }     from '@data/InitialGameState';
 
 // ── Scene imports ─────────────────────────────────────────────
 import { WorldMapScene }  from '@scenes/WorldMapScene';
-import { HexZoomScene }   from '@scenes/HexZoomScene';
 import { MissionScene }   from '@scenes/MissionScene';
 import { CityViewScene }  from '@scenes/CityViewScene';
 import { UIScene }        from '@scenes/UIScene';
@@ -111,7 +110,6 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [
     BootScene,     // runs first, starts the others
     WorldMapScene,
-    HexZoomScene,
     MissionScene,
     CityViewScene,
     UIScene,
@@ -120,7 +118,7 @@ const config: Phaser.Types.Core.GameConfig = {
     default: 'arcade',
     arcade: {
       gravity: { x: 0, y: 0 },  // MissionScene overrides with gravity: {y:600}
-      debug: import.meta.env.DEV,
+      debug: false,
     },
   },
   scale: {

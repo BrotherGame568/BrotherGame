@@ -21,25 +21,27 @@ import type { IHeroSystem } from '@systems/IHeroSystem';
 import type { IResourceSystem } from '@systems/IResourceSystem';
 import type { IAudioService } from '@services/IAudioService';
 import type { HexTile, AxialCoord } from '@data/HexTile';
-import { hexId } from '@data/HexTile';
+import { hexId, hexDistance } from '@data/HexTile';
 import type { Hero } from '@data/Hero';
 import type { ServiceBundle } from '../../src/main';
 
 export const HEX_ZOOM_SCENE_KEY = 'HexZoomScene';
 
 // ── Hex rendering constants ───────────────────────────────────
-const HEX_RADIUS = 52;          // Outer radius (center → vertex) in pixels
+const HEX_RADIUS = 70;          // Outer radius (center → vertex) in pixels
 const SCALE_Y = 0.55;           // Pseudo-isometric squish
 const SQRT3 = Math.sqrt(3);
+/** Only render tiles within this many rings of the current city. */
+const DISPLAY_RADIUS = 4;
 
-/** Site type → short label + colour. */
+/** Site type → full label + colour. */
 const SITE_DISPLAY: Record<string, { label: string; color: number }> = {
-  town:    { label: 'T', color: 0x3388dd },
-  village: { label: 'V', color: 0x33aa66 },
-  ruin:    { label: 'R', color: 0xaa6633 },
-  deposit: { label: 'D', color: 0xcccc33 },
-  skydock: { label: 'S', color: 0xcc33cc },
-  empty:   { label: '·', color: 0x555555 },
+  town:    { label: 'Town',    color: 0x3388dd },
+  village: { label: 'Village', color: 0x33aa66 },
+  ruin:    { label: 'Ruin',    color: 0xaa6633 },
+  deposit: { label: 'Deposit', color: 0xcccc33 },
+  skydock: { label: 'Dock',    color: 0xcc33cc },
+  empty:   { label: '·',       color: 0x555555 },
 };
 
 /** Site state → border + indicator colour. */
@@ -98,12 +100,14 @@ export class HexZoomScene extends Phaser.Scene {
     this._discoverReachableHexes();
 
     // ── Hex grid container (centered, squished) ────────
-    this.hexContainer = this.add.container(W / 2, H / 2 - 30);
+    this.hexContainer = this.add.container(W / 2, H / 2 - 20);
     this.hexContainer.setScale(1, SCALE_Y);
 
     const accessibleSet = this._buildAccessibleSet();
 
     for (const tile of this.gsm.hexMap) {
+      // Only show tiles close to the city (zoomed-in neighbourhood view)
+      if (hexDistance(tile.coord, this.gsm.cityHex) > DISPLAY_RADIUS) continue;
       this._renderHexTile(tile, accessibleSet.has(tile.id));
     }
 
@@ -143,31 +147,66 @@ export class HexZoomScene extends Phaser.Scene {
     }
     gfx.fillPoints(points, true);
 
-    // Border
-    gfx.lineStyle(2, isCity ? 0xffcc00 : stateColor, accessible ? 1 : 0.3);
-    gfx.strokePoints(points, true);
+    // Border — city gets a multi-pass glow; others get a single stroke
+    if (isCity) {
+      gfx.lineStyle(10, 0xffee88, 0.20);
+      gfx.strokePoints(points, true);
+      gfx.lineStyle(6,  0xffdd66, 0.40);
+      gfx.strokePoints(points, true);
+      gfx.lineStyle(3,  0xffcc00, 1.00);
+      gfx.strokePoints(points, true);
+    } else {
+      gfx.lineStyle(2, stateColor, accessible ? 1 : 0.3);
+      gfx.strokePoints(points, true);
+    }
 
     this.hexContainer.add(gfx);
 
-    // Label
-    const label = isCity ? '★' : display.label;
-    const labelColor = isCity ? '#ffcc00' : (accessible ? '#ffffff' : '#666666');
-    const text = this.add.text(pos.x, pos.y - 8, label, {
-      fontSize: isCity ? '26px' : '20px',
-      color: labelColor,
-      fontFamily: 'monospace',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.hexContainer.add(text);
+    // ── Labels / icon: drawn on the SCENE (not the container) so they aren't squished ──
+    const screenX = this.hexContainer.x + pos.x;
+    const screenY = this.hexContainer.y + pos.y * SCALE_Y;
 
-    // State label (tiny, below)
-    if (tile.siteState !== 'undiscovered') {
-      const stateLabel = this.add.text(pos.x, pos.y + 14, tile.siteState.slice(0, 3), {
-        fontSize: '13px',
-        color: accessible ? '#aaaaaa' : '#444444',
+    if (isCity) {
+      // ── City building icon ──────────────────────────────
+      const ig = this.add.graphics();
+      const bx = screenX;
+      const by = screenY;
+      // Ground / base line
+      ig.fillStyle(0xffaa22, 1);
+      ig.fillRect(bx - 28, by + 12, 56, 4);
+      // Left building
+      ig.fillStyle(0xccaa33, 1);
+      ig.fillRect(bx - 26, by - 6, 16, 18);
+      // Windows on left building
+      ig.fillStyle(0x88ccff, 0.85);
+      ig.fillRect(bx - 23, by - 3, 4, 4);
+      ig.fillRect(bx - 15, by - 3, 4, 4);
+      // Centre tower (tallest)
+      ig.fillStyle(0xffcc44, 1);
+      ig.fillRect(bx - 8, by - 22, 16, 34);
+      // Windows on centre tower
+      ig.fillStyle(0x88ccff, 0.85);
+      ig.fillRect(bx - 5, by - 18, 4, 4);
+      ig.fillRect(bx + 3, by - 18, 4, 4);
+      ig.fillRect(bx - 5, by - 10, 4, 4);
+      ig.fillRect(bx + 3, by - 10, 4, 4);
+      // Spire on centre tower
+      ig.fillStyle(0xffee88, 1);
+      ig.fillTriangle(bx - 5, by - 22, bx + 5, by - 22, bx, by - 32);
+      // Right building
+      ig.fillStyle(0xccaa33, 1);
+      ig.fillRect(bx + 10, by - 2, 14, 14);
+      ig.fillStyle(0x88ccff, 0.85);
+      ig.fillRect(bx + 13, by + 1, 4, 4);
+    } else {
+      // Regular site type label
+      const labelColor = accessible ? '#ffffff' : '#666666';
+      this.add.text(screenX, screenY - 8, display.label, {
+        fontSize: '20px',
+        color: labelColor,
         fontFamily: 'monospace',
+        fontStyle: 'bold',
       }).setOrigin(0.5);
-      this.hexContainer.add(stateLabel);
     }
 
     // Interaction zone (only for accessible non-city hexes, OR the city hex)

@@ -82,7 +82,7 @@ export class MissionScene extends Phaser.Scene {
     const ctx = this.gsm.missionContext;
     if (!ctx) {
       console.error('MissionScene: no missionContext on GSM');
-      this.scene.start('HexZoomScene', this.services);
+      this.scene.start('WorldMapScene', this.services);
       return;
     }
     this.context = ctx;
@@ -405,27 +405,90 @@ export class MissionScene extends Phaser.Scene {
   // ── Hero ───────────────────────────────────────────────
 
   private _createHero(): void {
-    // Create a simple coloured rectangle as the hero placeholder
-    const heroGfx = this.add.graphics();
-    heroGfx.fillStyle(0x4488ff, 1);
-    heroGfx.fillRect(-24, -36, 48, 72);
-    heroGfx.lineStyle(2, 0x66aaff, 1);
-    heroGfx.strokeRect(-24, -36, 48, 72);
+    // Texture dimensions. All draw commands are offset by (ox, oy) so every
+    // pixel lands inside the 0..TW, 0..TH capture area (negative coords are clipped).
+    //   Character spans: x -20..+20, y -32..+44  (relative to centre-bottom)
+    //   With ox=24, oy=38: x 4..44 ✓  y 6..82 ✓  within 48×84
+    const TW = 48;
+    const TH = 84;
+    const ox = TW / 2;   // horizontal centre = 24
+    const oy = 38;        // vertical offset to clear hair (hair top = oy-32 = 6)
 
-    // Generate a texture from the graphics for physics sprite
-    heroGfx.generateTexture('hero_placeholder', 48, 72);
+    const heroGfx = this.add.graphics();
+
+    // -- Body (torso) --
+    heroGfx.fillStyle(0x3366aa, 1);
+    heroGfx.fillRoundedRect(ox - 14, oy - 10, 28, 32, 4);
+
+    // -- Legs --
+    heroGfx.fillStyle(0x224477, 1);
+    heroGfx.fillRect(ox - 12, oy + 22, 10, 20);   // left leg
+    heroGfx.fillRect(ox + 2,  oy + 22, 10, 20);   // right leg
+
+    // -- Boots --
+    heroGfx.fillStyle(0x443322, 1);
+    heroGfx.fillRoundedRect(ox - 14, oy + 38, 12, 6, 2);  // left boot
+    heroGfx.fillRoundedRect(ox + 2,  oy + 38, 12, 6, 2);  // right boot
+
+    // -- Head --
+    heroGfx.fillStyle(0xddbb88, 1);
+    heroGfx.fillCircle(ox, oy - 20, 12);
+
+    // -- Hair --
+    heroGfx.fillStyle(0x553311, 1);
+    heroGfx.fillRect(ox - 12, oy - 32, 24, 8);   // hair top
+    heroGfx.fillRect(ox - 12, oy - 28,  4, 8);   // hair left side
+    heroGfx.fillRect(ox + 8,  oy - 28,  4, 8);   // hair right side
+
+    // -- Eyes --
+    heroGfx.fillStyle(0xffffff, 1);
+    heroGfx.fillCircle(ox - 5, oy - 22, 3);
+    heroGfx.fillCircle(ox + 5, oy - 22, 3);
+    heroGfx.fillStyle(0x223344, 1);
+    heroGfx.fillCircle(ox - 4, oy - 22, 1.5);
+    heroGfx.fillCircle(ox + 6, oy - 22, 1.5);
+
+    // -- Arms --
+    heroGfx.fillStyle(0x3366aa, 1);
+    heroGfx.fillRect(ox - 20, oy - 6, 8, 22);    // left arm
+    heroGfx.fillRect(ox + 12, oy - 6, 8, 22);    // right arm
+
+    // -- Hands --
+    heroGfx.fillStyle(0xddbb88, 1);
+    heroGfx.fillCircle(ox - 16, oy + 18, 4);
+    heroGfx.fillCircle(ox + 16, oy + 18, 4);
+
+    // -- Belt --
+    heroGfx.fillStyle(0x665533, 1);
+    heroGfx.fillRect(ox - 14, oy + 18, 28, 5);
+
+    // -- Outline --
+    heroGfx.lineStyle(1.5, 0x1a1a2e, 0.6);
+    heroGfx.strokeCircle(ox, oy - 20, 12);
+    heroGfx.strokeRoundedRect(ox - 14, oy - 10, 28, 32, 4);
+
+    heroGfx.generateTexture('hero_placeholder', TW, TH);
     heroGfx.destroy();
 
-    this.hero = this.physics.add.sprite(100, (this.heightMap[2] ?? GROUND_BASE_Y) - 80, 'hero_placeholder');
+    // Spawn with origin (0.5, 1) so the sprite's bottom edge sits exactly on
+    // the ground surface. No manual y-offset arithmetic needed.
+    const groundY = (this.heightMap[2] ?? GROUND_BASE_Y);
+    this.hero = this.physics.add.sprite(100, groundY, 'hero_placeholder');
+    this.hero.setOrigin(0.5, 1);
     this.hero.setCollideWorldBounds(true);
-    this.hero.body!.setSize(40, 66);
+
+    // Physics body: 28×70, positioned so its bottom aligns with the sprite's
+    // bottom (y = TH = 84 in frame space). setOffset is always from frame
+    // top-left regardless of origin.
+    // Body occupies (10, 14) → (38, 84) → bottom at frame bottom → on ground.
+    this.hero.body!.setSize(28, 70, false);
+    this.hero.body!.setOffset((TW - 28) / 2, TH - 70);  // (10, 14)
     this.hero.body!.setGravityY(600);
 
-    // Hero name label
+    // Hero name label (scrolls with the world)
     const activeHero = this.heroSystem.getById(this.context.activeHeroId);
     if (activeHero) {
-      const spawnY = (this.heightMap[2] ?? GROUND_BASE_Y);
-      this.add.text(100, spawnY - 130, activeHero.name, {
+      this.add.text(100, groundY - 110, activeHero.name, {
         fontSize: '16px', color: '#66aaff', fontFamily: 'monospace',
       }).setOrigin(0.5);
     }
@@ -515,7 +578,8 @@ export class MissionScene extends Phaser.Scene {
 
     // Brief delay then return to hex map
     this.time.delayedCall(600, () => {
-      this.scene.start('HexZoomScene', this.services);
+      console.log('[Mission] returning to WorldMapScene, services:', !!this.services);
+      this.scene.start('WorldMapScene', this.services);
     });
   }
 
