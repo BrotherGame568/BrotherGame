@@ -316,4 +316,15 @@ The architecture should leave room for additional gameplay modes and content pac
 - New world map systems (diplomacy, economy)
 - Multiplayer extension
 
-Design principle: **core systems use events/signals**, not direct calls, so new modules can subscribe without touching existing code.
+Because core systems communicate through events rather than direct calls, new modules can subscribe to existing events without touching existing code. New gameplay modes follow the same `MissionContext`/`MissionResult` handoff pattern.
+
+---
+
+## Related Documents
+
+| Document | Purpose |
+|---|---|
+| `docs/INTERFACES.md` | Canonical interface specs — read before writing any cross-domain code |
+| `docs/GAME_DESIGN.md` | Feature intentions and design decisions |
+| `docs/DECISIONS.md` | Architecture Decision Records — why things are the way they are |
+| `CLAUDE.md` | AI agent rules and project-wide constraints |
