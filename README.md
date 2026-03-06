@@ -1,88 +1,136 @@
 # BrotherGame
 
-A collaborative video game featuring a turn-based strategic world map and real-time mission gameplay.
+A sky-city exploration and management game built with **Phaser 3 + TypeScript**, targeting web browsers. The player steers a floating city along tradewind routes over a hex surface world, dispatches heroes to evolving side-view surface sites, and manages a three-tier resource economy to grow the city's capabilities.
 
-## Overview
+## Engine Decision
 
-BrotherGame is built across two core gameplay modes:
-- **World Map** — Turn-based strategic layer (movement, decisions, resource management)
-- **Missions** — Real-time action gameplay (combat, exploration, objectives)
+**Phaser 3 (TypeScript, web-only).** This is final. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for rationale and scene topology.
 
-## Team & Ownership
+## Agent Quick-Start
 
-| Domain | Branch | Owns |
-|---|---|---|
-| Architecture | `arch/core` | Core systems, game loop, entity framework, data models, autoloads |
-| Levels | `levels/design` | World map layout, mission design, templates, scene composition |
-| Art & Assets | `art/assets` | Sprites, UI, backgrounds, animations, style guide |
-| Music & Audio | `audio/music` | Music tracks, sound effects, ambience |
+> If you are an AI coding agent, **read these three documents first** before touching any file:
+> 1. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Scene topology, interface index, event contracts
+> 2. [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md) — Gameplay rules, resource system, progression
+> 3. [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md) — Stub pattern, domain ownership, CI requirements
+
+## High-Level Game Loop
+
+```
+Cycle Start
+  │
+  ▼
+WorldMapScene ── choose tradewind direction (2–3 options)
+  │                city icon moves along wind corridor
+  ▼
+HexZoomScene ─── pseudo-isometric hex grid around city position
+  │                accessible hexes = within reachRadius
+  │                select surface site  ──────────────────────────────┐
+  │                                                                    ▼
+  │                                               Party Selection (modal)
+  │                                               pick Active hero + Support hero
+  │                                                                    │
+  │                                                                    ▼
+  │◄──────────────────────────────────────────── MissionScene (side-view, combat)
+  │                collect resources, hero result written back
+  │
+  │                OR enter city
+  │                     │
+  │                     ▼
+  │              CityViewScene (HOMM-style)
+  │              build districts, recruit heroes, manage resources
+  │◄─────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+Site evolution pass (sites change state after full circuit)
+  │
+  ▼
+Next Cycle
+```
 
 ## Repository Structure
 
 ```
 BrotherGame/
-├── .github/                  # PR templates, issue templates, CI workflows
-├── docs/                     # Design docs, architecture notes, style guides
+├── .github/                      # PR templates, issue templates, CI workflows
+├── docs/
+│   ├── ARCHITECTURE.md           # [READ FIRST] Scene topology + interface map
+│   ├── GAME_DESIGN.md            # [READ FIRST] All gameplay rules and systems
+│   ├── AGENT_GUIDE.md            # [READ FIRST] How to work in this repo
+│   └── INTERFACES.md             # Interface index and implementation status
 ├── game/
-│   ├── core/                 # [ARCH] Engine systems and shared logic
-│   │   ├── systems/
-│   │   │   ├── turn_based/   # Turn-based map system
-│   │   │   └── real_time/    # Real-time mission system
-│   │   ├── entities/         # Shared entity definitions
-│   │   ├── data/             # Game data / configuration
-│   │   └── autoloads/        # Global singletons / service locators
-│   ├── levels/               # [LEVELS] World map and mission content
-│   │   ├── world_map/
-│   │   ├── missions/
-│   │   └── templates/
-│   ├── assets/               # [ART] All visual assets
+│   ├── core/
+│   │   ├── data/                 # TypeScript data types (HexTile, Hero, Resource…)
+│   │   ├── entities/             # Entity types (Hero, Faction, Building…)
+│   │   ├── services/             # IAudioService, ISaveService interfaces + stubs
+│   │   └── systems/              # All gameplay system interfaces + stubs
+│   ├── scenes/                   # Phaser Scene stubs (one file per scene)
+│   ├── levels/
+│   │   ├── world_map/            # Hex map data files
+│   │   ├── missions/             # Mission level data files
+│   │   └── templates/            # Reusable level templates
+│   ├── assets/
 │   │   ├── sprites/
 │   │   ├── ui/
 │   │   ├── backgrounds/
 │   │   └── animations/
-│   └── audio/                # [AUDIO] All audio assets
+│   └── audio/
 │       ├── music/
 │       ├── sfx/
 │       └── ambience/
-└── tools/                    # Build helpers, asset pipeline scripts
+├── tools/                        # Build helpers, asset pipeline scripts
+├── package.json
+├── tsconfig.json
+└── vite.config.ts
 ```
+
+## Domain Ownership
+
+| Domain | Branch | Owns |
+|---|---|---|
+| Architecture | `arch/core` | `game/core/`, `game/scenes/`, `tsconfig.json`, `vite.config.ts`, all interfaces |
+| Levels | `levels/design` | `game/levels/`, level data files, site evolution data |
+| Art & Assets | `art/assets` | `game/assets/`, `game/assets/MANIFEST.md` |
+| Audio | `audio/music` | `game/audio/`, `game/audio/EVENTS.md` |
+
+**Interface files are cross-domain.** Any PR touching `game/core/systems/I*.ts` or `game/core/services/I*.ts` requires sign-off from ALL domain owners. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Branching Model
 
 ```
 main          ← stable releases only
   └── develop ← integration (all features merge here first)
-        ├── arch/core        ← Architecture owner
-        ├── levels/design    ← Levels owner
-        ├── art/assets       ← Art owner
-        └── audio/music      ← Audio owner
+        ├── arch/core
+        ├── levels/design
+        ├── art/assets
+        └── audio/music
 ```
 
-Feature sub-branches (for AI agents or experimental work):
-```
-arch/core-feature-xyz
-levels/design-mission-01
-art/assets-character-sprites
-audio/music-overworld-theme
-```
+Sub-branches: `arch/core-hero-system`, `levels/design-hex-map`, `art/assets-city-sprites`, etc.
 
-## Workflow
+## Phased Roadmap
 
-1. Work on your domain branch (or a sub-branch off it)
-2. Open a PR → `develop` when work is ready for integration
-3. At least one other team member reviews
-4. Merge to `develop`; integration testing happens here
-5. `develop` → `main` at stable milestones only
+| Phase | Status | Deliverable |
+|---|---|---|
+| **Phase 0** | 🔄 In progress | TS scaffold + all interfaces + data types + scene stubs + agent docs |
+| **Phase 1** | ⬜ Not started | All contracts locked in docs; data rules, all schemas, design questions resolved |
+| **Phase 2** | ⬜ Not started | System implementations behind interfaces (each domain independently) |
+| **Phase 3** | ⬜ Not started | Vertical slice: full cycle playable in browser |
+| **Phase 4** | ⬜ Not started | Content scaling: varied sites, tech tree, Tier 3 mission chains |
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for full workflow details.
+### Phase 0 Exit Criteria
+- `npm run typecheck` passes with zero errors on the full stub tree
+- A blank Phaser window launches in browser (`npm run dev`)
+- Every interface file has a stub implementation
+- Every scene has a stub class with ownership comments
 
 ## Getting Started
 
-1. Clone the repo
-2. Check out the [Architecture doc](docs/ARCHITECTURE.md) to understand the system design
-3. Check out the [Game Design doc](docs/GAME_DESIGN.md) for feature intentions
-4. Pull your domain branch and start working
+```bash
+git clone <repo>
+cd BrotherGame
+npm install
+npm run dev        # launch blank Phaser window in browser
+npm run typecheck  # must pass before any PR
+```
 
-## Engine
-
-> **TBD** — Engine choice to be finalized by the architecture owner. Top candidates: Godot 4, Unity. The folder structure supports either.
+See [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md) for full workflow.

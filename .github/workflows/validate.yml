@@ -29,11 +29,37 @@ jobs:
           fi
           echo "Branch name '$BRANCH' is valid."
 
-  # Add engine-specific steps below once engine is chosen:
-  # build:
-  #   name: Build Check
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Build
-  #       run: ...
+  typecheck:
+    name: TypeScript Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run TypeScript type check
+        run: npm run typecheck
+
+  check-interface-ownership:
+    name: Interface File Change Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for interface file changes
+        run: |
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          INTERFACE_CHANGES=$(echo "$CHANGED" | grep -E 'game/core/systems/I.*\.ts|game/core/services/I.*\.ts' || true)
+          if [ -n "$INTERFACE_CHANGES" ]; then
+            echo "::warning::Interface files were modified in this PR:"
+            echo "$INTERFACE_CHANGES"
+            echo ""
+            echo "Interface changes are CROSS-DOMAIN BREAKING CHANGES."
+            echo "This PR REQUIRES sign-off from ALL domain owners."
+            echo "Ensure a Cross-Domain Interface issue was opened and approved before merging."
+          fi
+

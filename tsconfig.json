@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@scenes/*": ["game/scenes/*"],
+      "@systems/*": ["game/core/systems/*"],
+      "@services/*": ["game/core/services/*"],
+      "@data/*": ["game/core/data/*"],
+      "@entities/*": ["game/core/entities/*"],
+      "@assets/*": ["game/assets/*"]
+    }
+  },
+  "include": [
+    "game/**/*.ts",
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}
