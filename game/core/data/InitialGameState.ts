@@ -86,7 +86,7 @@ export function initializeGameState(gsm: IGameStateManager): void {
 
   // Generate the persistent wind corridor network (seed 42 → deterministic world)
   const WORLD_RADIUS = 60;
-  const windNetwork = generateWindNetwork(WORLD_RADIUS, 42);
+  const windNetwork = generateWindNetwork(WORLD_RADIUS, 39);
   gsm.setWindNetwork(windNetwork);
 
   // Find the starting corridor: pick the one whose spine passes closest to origin

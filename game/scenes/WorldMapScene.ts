@@ -145,6 +145,10 @@ export class WorldMapScene extends Phaser.Scene {
   private screenLabels: ScreenHexLabel[] = [];
   /** Static graphics layer: all corridor bands, spines, junction markers. */
   private _networkGfx:    Phaser.GameObjects.Graphics | null = null;
+  /** Reference to the world terrain graphics layer (for zoom-based alpha). */
+  private _terrainGfx:    Phaser.GameObjects.Graphics | null = null;
+  /** Permanent outline ring drawn at the edge of the reachable hex area. */
+  private _reachOutlineGfx: Phaser.GameObjects.Graphics | null = null;
   /** Dark distance fog drawn between terrain and corridors. */
   private _fogGfx:            Phaser.GameObjects.Graphics | null = null;
   /** Interactive zones along corridor spines for hover detection. */
@@ -218,6 +222,8 @@ export class WorldMapScene extends Phaser.Scene {
     this.labelObjects    = [];
     this.screenLabels    = [];
     this._networkGfx         = null;
+    this._terrainGfx          = null;
+    this._reachOutlineGfx     = null;
     this._streamGfx           = null;
     this._particleData        = [];
     this._junctionOverlay     = null;
@@ -341,6 +347,7 @@ export class WorldMapScene extends Phaser.Scene {
 
   private _buildWorldBackground(): void {
     const gfx = this.add.graphics();
+    this._terrainGfx = gfx;
     this.mapContainer.add(gfx);
     for (let q = -WORLD_RADIUS; q <= WORLD_RADIUS; q++) {
       for (let r = -WORLD_RADIUS; r <= WORLD_RADIUS; r++) {
@@ -377,21 +384,31 @@ export class WorldMapScene extends Phaser.Scene {
       const tileGfx = this.add.graphics();
       this.gameTileContainer.add(tileGfx);
 
+      // Terrain-matched fill; site-type color as outline ring.
+      const terrColor = worldTileColor(tile.coord.q, tile.coord.r);
       const drawTile = (hovered: boolean) => {
         tileGfx.clear();
         if (isCity) {
-          tileGfx.fillStyle(hovered ? 0xddbb22 : 0x887722, 0.80);
-        } else if (accessible) {
-          tileGfx.fillStyle(display.color, hovered ? 0.80 : 0.55);
-        } else {
-          tileGfx.fillStyle(0x222222, 0.42);
-        }
-        tileGfx.fillPoints(pts, true);
-        if (isCity) {
+          tileGfx.fillStyle(hovered ? 0xddbb22 : 0x887722, 0.85);
+          tileGfx.fillPoints(pts, true);
           tileGfx.lineStyle(hovered ? 3 : 2, 0xf7c948, hovered ? 1 : 0.9);
           tileGfx.strokePoints(pts, true);
+        } else if (accessible) {
+          // Base fill: underlying terrain color at moderate alpha
+          tileGfx.fillStyle(terrColor, hovered ? 0.82 : 0.60);
+          tileGfx.fillPoints(pts, true);
+          // Site-type tint overlay (thin; just adds site color on hover or always subtle)
+          if (hovered) {
+            tileGfx.fillStyle(display.color, 0.25);
+            tileGfx.fillPoints(pts, true);
+          }
+          // Site-type as outline stroke
+          tileGfx.lineStyle(hovered ? 2.5 : 1.5, display.color, hovered ? 1 : 0.70);
+          tileGfx.strokePoints(pts, true);
         } else {
-          tileGfx.lineStyle(hovered ? 3 : 2, stateColor, accessible ? (hovered ? 1 : 0.9) : 0.25);
+          tileGfx.fillStyle(terrColor, 0.22);
+          tileGfx.fillPoints(pts, true);
+          tileGfx.lineStyle(1, 0x666666, 0.18);
           tileGfx.strokePoints(pts, true);
         }
       };
@@ -433,6 +450,37 @@ export class WorldMapScene extends Phaser.Scene {
     }
 
     const { x: cx, y: cy } = tilePx(this.gsm.cityHex.q, this.gsm.cityHex.r);
+
+    // ── Reachable-area boundary ring ────────────────────────────────────────
+    // Draw only the hex edges that face the outside (no neighbour within GAME_RADIUS).
+    const ringGfx = this.add.graphics();
+    this.gameTileContainer.add(ringGfx);
+    this._reachOutlineGfx = ringGfx;
+    ringGfx.lineStyle(2.0, 0xaabb88, 0.55);
+    const HEX_DIR_OFFSETS = [
+      { dq:  1, dr:  0 }, { dq:  1, dr: -1 }, { dq:  0, dr: -1 },
+      { dq: -1, dr:  0 }, { dq: -1, dr:  1 }, { dq:  0, dr:  1 },
+    ];
+    // Vertex offsets for each flat-top hex edge (edge i = between vertex i and i+1).
+    for (const tile of this.gsm.hexMap) {
+      if (hexDistance(tile.coord, this.gsm.cityHex) !== GAME_RADIUS) continue;
+      const { x: tx, y: ty } = tilePx(tile.coord.q, tile.coord.r);
+      const tpts = tilePts(tx, ty);
+      for (let ei = 0; ei < 6; ei++) {
+        const nb = HEX_DIR_OFFSETS[ei]!;
+        const nq = tile.coord.q + nb.dq;
+        const nr = tile.coord.r + nb.dr;
+        if (hexDistance({ q: nq, r: nr }, this.gsm.cityHex) <= GAME_RADIUS) continue;
+        // This edge faces outside — draw it.
+        const vA = tpts[ei]!;
+        const vB = tpts[(ei + 1) % 6]!;
+        ringGfx.beginPath();
+        ringGfx.moveTo(vA.x, vA.y);
+        ringGfx.lineTo(vB.x, vB.y);
+        ringGfx.strokePath();
+      }
+    }
+
     const dotGfx = this.add.graphics();
     dotGfx.fillStyle(0xf7c948, 0.22); dotGfx.fillCircle(cx, cy, TILE_R * 1.05);
     dotGfx.fillStyle(0xf7c948, 0.62); dotGfx.fillCircle(cx, cy, TILE_R * 0.45);
@@ -489,6 +537,10 @@ export class WorldMapScene extends Phaser.Scene {
     for (const lbl of this.screenLabels) {
       lbl.text.setAlpha(show ? 1 : 0);
     }
+    // Terrain fades to near-invisible when zoomed far out; particles take over.
+    const zoomT = Phaser.Math.Clamp(
+      (this.currentZoom - MIN_ZOOM) / (INITIAL_ZOOM - MIN_ZOOM), 0, 1);
+    if (this._terrainGfx) this._terrainGfx.setAlpha(0.20 + zoomT * 0.60);
   }
 
   private _updateScreenLabelTransforms(): void {
@@ -557,13 +609,7 @@ export class WorldMapScene extends Phaser.Scene {
     // }
 
     // ── Junction markers — soft rings where corridors cross ─────────────────
-    for (const j of network.junctions) {
-      const { x, y } = tilePx(j.hex.q, j.hex.r);
-      gfx.fillStyle(0xffffff, 0.55);
-      gfx.fillCircle(x, y, TILE_R * 0.28);
-      gfx.lineStyle(1, 0xffffff, 0.30);
-      gfx.strokeCircle(x, y, TILE_R * 0.55);
-    }
+    // (drawn only on hover — see _onCorridorHover)
 
     this.mapContainer.add(gfx);
     this._networkGfx = gfx;
@@ -585,6 +631,15 @@ export class WorldMapScene extends Phaser.Scene {
       gfx.fillPoints(pts, true);
       gfx.lineStyle(1, corr.color, 0.30);
       gfx.strokePoints(pts, true);
+    }
+    // ── Junction markers on hovered corridor ──────────────────────────────
+    for (const j of this.gsm.windNetwork.junctions) {
+      if (!j.corridorIds.includes(corr.id)) continue;
+      const { x: jx, y: jy } = tilePx(j.hex.q, j.hex.r);
+      gfx.fillStyle(0xffffff, 0.65);
+      gfx.fillCircle(jx, jy, TILE_R * 0.28);
+      gfx.lineStyle(1.5, 0xffffff, 0.45);
+      gfx.strokeCircle(jx, jy, TILE_R * 0.55);
     }
     if (!this._corridorNameLabel) {
       this._corridorNameLabel = this.add.text(0, 0, corr.name, {
@@ -630,9 +685,9 @@ export class WorldMapScene extends Phaser.Scene {
       const lenRatio   = Math.sqrt(corr.spine.length / PARTICLE_REF_LEN);
       const baseCount  = isActive ? ACTIVE_PARTICLE_COUNT : GHOST_PARTICLE_COUNT;
       const count      = Math.max(8, Math.round(baseCount * lenRatio));
-      const alpha      = isActive ? 0.85 : 0.28;
+      const alpha      = isActive ? 0.60 : 0.28;
       const color      = isActive ? 0x82FFFC : corr.color;
-      const travSecs   = isActive ? 10.0 : 58.0;
+      const travSecs   = isActive ? 40.0 : 116.0;
       const bandSpread = isActive ? BAND_SPREAD_ACTIVE : BAND_SPREAD_GHOST;
       const streakPx   = isActive ? TILE_R * 4.2 : TILE_R * 2.6;
 
@@ -670,7 +725,15 @@ export class WorldMapScene extends Phaser.Scene {
     const fr  = raw - lo;
     const a   = tilePx(spine[lo]!.q, spine[lo]!.r);
     const b   = tilePx(spine[hi]!.q, spine[hi]!.r);
-    return { x: a.x + (b.x - a.x) * fr, y: a.y + (b.y - a.y) * fr };
+    // Wrap-seam guard: adjacent spine hexes on opposite world edges produce a
+    // pixel delta hundreds of tiles wide.  Interpolating between them draws a
+    // line straight through the map centre.  Snap to the nearer endpoint so
+    // the pts gap-break in update() can detect and clip the seam instead.
+    const sdx = b.x - a.x, sdy = b.y - a.y;
+    if (sdx * sdx + sdy * sdy > (TILE_R * 4) * (TILE_R * 4)) {
+      return fr < 0.5 ? a : b;
+    }
+    return { x: a.x + sdx * fr, y: a.y + sdy * fr };
   }
 
   update(time: number, delta: number): void {
@@ -705,18 +768,36 @@ export class WorldMapScene extends Phaser.Scene {
       // Sample N_SEG+1 world positions — CLAMPED to [0,1], never wrapping.
       // This means a particle near t=0 has a shorter tail, which is fine and
       // completely avoids the straight-line artefact at the seam.
+      // Adaptive tangent half-window: spans ≥ 2 hex-steps so the pixel delta
+      // between back/forward samples is always non-trivial.  Computed once per
+      // particle, outside the tail-sample loop.
+      const halfWin = Math.max(0.040, 2.0 / (corr.spine.length - 1));
+
       const pts: Array<{ x: number; y: number }> = [];
       for (let i = N_SEG; i >= 0; i--) {
         const ts = Math.max(0, p.t - i * tStep);
 
-        const spos   = this._spinePixel(corr, ts);
-        const tsAhd  = Math.min(ts + 0.008, 1.0);
-        const sAhead = this._spinePixel(corr, tsAhd);
-        const dx = sAhead.x - spos.x;
-        const dy = sAhead.y - spos.y;
-        const dl = Math.sqrt(dx * dx + dy * dy) || 1;
-        const px = -dy / dl;
-        const py =  dx / dl;
+        const tsBk  = Math.max(0,   ts - halfWin);
+        const tsFw  = Math.min(1.0, ts + halfWin);
+        const sBk   = this._spinePixel(corr, tsBk);
+        const sFw   = this._spinePixel(corr, tsFw);
+        const dx = sFw.x - sBk.x;
+        const dy = sFw.y - sBk.y;
+        // Genuine world-wrap artifacts produce pixel deltas of 1000+ px
+        // (world diameter = ~1440 px).  Legitimate tangent windows are ≤ ~200 px.
+        // Using TILE_R * 30 = 360 px gives a safe gap between the two.
+        const dlRaw = Math.sqrt(dx * dx + dy * dy);
+        const isWrapStraddle = dlRaw > TILE_R * 30;
+        const dl = isWrapStraddle ? 1 : (dlRaw || 1);
+        const px = isWrapStraddle ? 0 : -dy / dl;
+        const py = isWrapStraddle ? 0 :  dx / dl;
+        const spos = this._spinePixel(corr, ts);
+        // Abort tail early if we crossed a world-wrap point (large pixel gap).
+        if (pts.length > 0) {
+          const prev = pts[pts.length - 1]!;
+          const gx = spos.x - prev.x, gy = spos.y - prev.y;
+          if (gx * gx + gy * gy > (TILE_R * 8) * (TILE_R * 8)) break;
+        }
         pts.push({ x: spos.x + px * offset, y: spos.y + py * offset });
 
         // Stop adding tail samples once we've hit the spine start.
@@ -725,10 +806,14 @@ export class WorldMapScene extends Phaser.Scene {
       if (pts.length < 2) continue;
 
       // Draw segments: quadratic alpha fade * per-particle fade envelope.
+      // At low zoom particles become brighter/thicker to stay visible.
+      const zT     = Phaser.Math.Clamp(
+        (this.currentZoom - MIN_ZOOM) / (INITIAL_ZOOM - MIN_ZOOM), 0, 1);
+      const pBoost = 1 + (1 - zT) * 1.5;   // up to 2.5× at min zoom
       for (let si = 0; si < pts.length - 1; si++) {
         const frac = si / (pts.length - 1);   // 0 = near tail, 1 = near head
-        const segA = drawAlpha * (frac * frac);
-        const w    = 0.5 + frac * 1.0;
+        const segA = Math.min(1, drawAlpha * pBoost * (frac * frac));
+        const w    = Math.min(2.0, (0.5 + frac * 1.0) * Math.min(pBoost, 1.6));
         if (segA < 0.012) continue;
         gfx.lineStyle(w, p.color, segA);
         gfx.lineBetween(pts[si]!.x, pts[si]!.y, pts[si + 1]!.x, pts[si + 1]!.y);
@@ -747,8 +832,10 @@ export class WorldMapScene extends Phaser.Scene {
     this._discoverReachableHexes();
     this._buildGameTiles();
     this._updateLabelVisibility();
-    this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  --  Hex Map');
+    this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  —  Hex Map');
 
+    // Junction check happens AFTER movement — the choice is presented when
+    // the city has already arrived at the junction hex, not a turn before.
     if (this.tradewindSystem.isAtJunction()) {
       this._showJunctionModal();
     }
@@ -759,7 +846,7 @@ export class WorldMapScene extends Phaser.Scene {
    * The player can switch to a different current or stay on the current one.
    */
   private _showJunctionModal(): void {
-    if (this.routeOverlay) return;    // already showing
+    if (this.routeOverlay) return;
 
     const result = this.tradewindSystem.getUpcomingJunction();
     if (!result) return;
@@ -769,19 +856,28 @@ export class WorldMapScene extends Phaser.Scene {
     const H = this.scale.height;
 
     this.routeOverlay = this.add.container(0, 0).setDepth(50);
-    const PANEL_H  = Math.floor(H * 0.28);
+    const PANEL_H = Math.floor(H * 0.30);
+    const panelY  = H - PANEL_H;
+
+    // ── Backdrop ──────────────────────────────────────────────────────
     const backdrop = this.add.graphics();
-    backdrop.fillStyle(0x000105, 0.82);
-    backdrop.fillRect(0, H - PANEL_H - 8, W, PANEL_H + 8);
-    backdrop.lineStyle(1, 0x334455, 0.60);
-    backdrop.strokeRect(0, H - PANEL_H - 8, W, 1);
+    backdrop.fillStyle(0x020c1c, 0.94);
+    backdrop.fillRect(0, panelY, W, PANEL_H);
+    backdrop.lineStyle(1.5, 0x1a3a5a, 1.0);
+    backdrop.lineBetween(0, panelY, W, panelY);
     this.routeOverlay.add(backdrop);
 
-    // Active corridor "Stay on course" card
+    // ── Header ───────────────────────────────────────────────────────
+    this.routeOverlay.add(
+      this.add.text(W / 2, panelY + 10,
+        '◈  J U N C T I O N  —  choose your wind current  ◈', {
+          fontSize: '11px', color: '#3a5570', fontFamily: 'monospace',
+        }).setOrigin(0.5, 0),
+    );
+
+    // ── Build card list ────────────────────────────────────────────────
     const activeCorrId  = this.gsm.currentCorridorId;
     const activeCorridor = this.gsm.windNetwork.corridors.find(c => c.id === activeCorrId);
-
-    // All option cards = stay + branch options
     const allCards: Array<{ name: string; speed: number; color: number; corridorId: string | null }> = [];
     if (activeCorridor) {
       allCards.push({ name: activeCorridor.name, speed: activeCorridor.speed, color: 0xf7c948, corridorId: null });
@@ -790,74 +886,95 @@ export class WorldMapScene extends Phaser.Scene {
       allCards.push({ name: opt.corridor.name, speed: opt.corridor.speed, color: opt.corridor.color, corridorId: opt.corridor.id });
     }
 
-    const cardW  = 240;
-    const cardH  = 130;
-    const gap    = 20;
+    const cardW  = 220;
+    const cardH  = Math.floor(PANEL_H * 0.80);
+    const gap    = 14;
     const totalW = allCards.length * (cardW + gap) - gap;
-    const startX = Math.max(30, (W - totalW) / 2);
-    const startY = H - PANEL_H + 16;
-
-    // Header
-    this.routeOverlay.add(
-      this.add.text(W / 2, H - PANEL_H + 2,
-        'JUNCTION  —  ' + junction.corridorIds.length + ' currents cross here', {
-          fontSize: '12px', color: '#667788', fontFamily: 'monospace',
-        }).setOrigin(0.5, 0),
-    );
+    const startX = Math.max(16, (W - totalW) / 2);
+    const startY = panelY + 30;
 
     for (let ci = 0; ci < allCards.length; ci++) {
-      const card     = allCards[ci]!;
-      const x        = startX + ci * (cardW + gap);
-      const isActive = card.corridorId === null;
-      const col      = card.color;
+      const card   = allCards[ci]!;
+      const x      = startX + ci * (cardW + gap);
+      const isStay = card.corridorId === null;
+      const col    = card.color;
+
+      // Pre-lookup corridor object for hover highlight
+      const corrObj = isStay
+        ? activeCorridor
+        : this.gsm.windNetwork.corridors.find(c => c.id === card.corridorId);
 
       const gcard = this.add.graphics();
       const drawCard = (hov: boolean) => {
         gcard.clear();
-        gcard.fillStyle(col, hov ? 0.40 : 0.15);
-        gcard.fillRoundedRect(x, startY, cardW, cardH, 8);
-        gcard.lineStyle(isActive ? 3 : (hov ? 2 : 1.5),
-          hov ? 0xffffff : col, isActive ? 1 : (hov ? 0.9 : 0.55));
-        gcard.strokeRoundedRect(x, startY, cardW, cardH, 8);
-        if (isActive) {
-          gcard.fillStyle(0xf7c948, 1);
-          gcard.fillRect(x, startY + 8, 3, cardH - 16);
+        // Body fill
+        gcard.fillStyle(0x040c1c, hov ? 0.97 : 0.82);
+        gcard.fillRoundedRect(x, startY, cardW, cardH, 6);
+        // Colored left-edge stripe (4 px)
+        gcard.fillStyle(col, hov ? 1.0 : 0.65);
+        gcard.fillRoundedRect(x, startY, 4, cardH,
+          { tl: 6, tr: 0, br: 0, bl: 6 } as unknown as number);
+        // Border
+        gcard.lineStyle(hov ? 2 : 1.5, hov ? 0xffffff : col, hov ? 0.90 : 0.40);
+        gcard.strokeRoundedRect(x, startY, cardW, cardH, 6);
+        // "Stay" accent top bar
+        if (isStay && !hov) {
+          gcard.lineStyle(2, 0xf7c948, 0.60);
+          gcard.lineBetween(x + 4, startY + 1, x + cardW, startY + 1);
         }
       };
       drawCard(false);
       this.routeOverlay!.add(gcard);
 
-      const labelA = this.add.text(x + cardW / 2, startY + 18, card.name, {
-        fontSize: '15px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0.5);
-      const labelB = this.add.text(x + cardW / 2, startY + 42,
-        isActive ? '  stay on course  ' : '  switch current  ', {
-          fontSize: '11px', color: isActive ? '#aaa' : '#88aacc', fontFamily: 'monospace',
-        }).setOrigin(0.5);
-      const labelC = this.add.text(x + cardW / 2, startY + 62,
-        'Speed ' + card.speed + '  (' + (card.speed === 1 ? 'slow' : card.speed === 2 ? 'moderate' : 'fast') + ')', {
-          fontSize: '11px', color: '#666', fontFamily: 'monospace',
-        }).setOrigin(0.5);
+      // ── Card text labels ─────────────────────────────────────────────────
+      const tx = x + 14;  // left-pad past stripe
 
-      for (const t of [labelA, labelB, labelC]) this.routeOverlay!.add(t);
+      const badge = isStay ? 'STAY  ▼' : 'SWITCH  ▶';
+      const badgeCol = isStay ? '#776040' : '#336688';
+      const nameLabel = this.add.text(tx, startY + 12, card.name, {
+        fontSize: '14px', color: '#dde8f4', fontFamily: 'monospace', fontStyle: 'bold',
+      }).setOrigin(0, 0);
+      const sub = this.add.text(tx, startY + 30, badge, {
+        fontSize: '10px', color: badgeCol, fontFamily: 'monospace',
+      }).setOrigin(0, 0);
 
+      // Speed pips: ◆ = filled, ◇ = empty
+      const pips = ('◆'.repeat(card.speed) + '◇'.repeat(Math.max(0, 3 - card.speed)));
+      const speedWord = card.speed === 1 ? 'slow' : card.speed === 2 ? 'steady' : 'swift';
+      const colHex = '#' + col.toString(16).padStart(6, '0');
+      const speedLabel = this.add.text(tx, startY + 46, pips + '  ' + speedWord, {
+        fontSize: '11px', color: colHex, fontFamily: 'monospace',
+      }).setOrigin(0, 0);
+
+      for (const t of [nameLabel, sub, speedLabel]) this.routeOverlay!.add(t);
+
+      // ── Hit zone ────────────────────────────────────────────────────────
       const hit = this.add.zone(x + cardW / 2, startY + cardH / 2, cardW, cardH)
         .setInteractive({ useHandCursor: true });
       this.routeOverlay!.add(hit);
-      hit.on('pointerover', () => drawCard(true));
-      hit.on('pointerout',  () => drawCard(false));
+
+      hit.on('pointerover', () => {
+        drawCard(true);
+        if (corrObj) this._onCorridorHover(corrObj);
+      });
+      hit.on('pointerout', () => {
+        drawCard(false);
+        this._onCorridorOut();
+      });
       hit.on('pointerdown', () => {
         if (card.corridorId) {
           this._applyCorridorSwitch(card.corridorId);
         } else {
-          // Stay on current — just close modal
+          // Stay on current — close panel and restore UI
           this.routeOverlay?.destroy(true);
           this.routeOverlay = null;
+          this.endCycleBtn?.setVisible(true);
+          this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  —  Hex Map');
         }
       });
     }
 
-    this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  --  Junction');
+    this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  —  Junction');
     this.endCycleBtn?.setVisible(false);
   }
 
@@ -877,7 +994,7 @@ export class WorldMapScene extends Phaser.Scene {
     this._discoverReachableHexes();
     this._buildGameTiles();
     this._updateLabelVisibility();
-    this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  --  Hex Map');
+    this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  —  Hex Map');
     this.endCycleBtn?.setVisible(true);
   }
 
@@ -900,7 +1017,7 @@ export class WorldMapScene extends Phaser.Scene {
         if (Math.abs(-q - r) > WORLD_RADIUS) continue;
         const d = hexDistance({ q, r }, { q: cq, r: cr });
         if (d <= 6) continue;                                    // full brightness near city
-        const alpha = Math.min(0.78, (d - 6) / 32 * 0.78);     // ramp to 78% black at dist 38+
+    const alpha = Math.min(0.45, (d - 6) / 32 * 0.45);     // ramp to 45% black at dist 38+
         const { x, y } = tilePx(q, r);
         gfx.fillStyle(0x000000, alpha);
         gfx.fillPoints(tilePts(x, y), true);
@@ -913,10 +1030,15 @@ export class WorldMapScene extends Phaser.Scene {
   }
 
   private _renderTitleBar(W: number): void {
-    this.add.graphics().fillStyle(0x000000, 0.45).fillRect(0, 0, W, 50);
+    const bar = this.add.graphics();
+    bar.fillStyle(0x020810, 0.92);
+    bar.fillRect(0, 0, W, 50);
+    // Thin bottom accent line
+    bar.lineStyle(1, 0x1a3850, 1.0);
+    bar.lineBetween(0, 49, W, 49);
     this.titleText = this.add.text(W / 2, 25,
-      'Cycle ' + this.gsm.cycleCount + '  --  Hex Map', {
-        fontSize: '22px', color: '#ffffff', fontFamily: 'monospace',
+      'Cycle ' + this.gsm.cycleCount + '  —  Hex Map', {
+        fontSize: '19px', color: '#c0d0e0', fontFamily: 'monospace', fontStyle: 'bold',
       }).setOrigin(0.5);
   }
 
@@ -930,11 +1052,23 @@ export class WorldMapScene extends Phaser.Scene {
   }
 
   private _renderEndCycleButton(W: number, H: number): void {
-    this.endCycleBtn = this.add.text(W - 28, H - 58, '[ End Cycle ]', {
-      fontSize: '22px', color: '#ffaa33', fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(1, 0.5).setInteractive({ useHandCursor: true });
-    this.endCycleBtn.on('pointerover', () => this.endCycleBtn.setColor('#ffcc66'));
-    this.endCycleBtn.on('pointerout',  () => this.endCycleBtn.setColor('#ffaa33'));
+    const bw = 148, bh = 32;
+    const bx = W - bw - 14;
+    const by = H - bh - 14;
+    const btnBg = this.add.graphics();
+    const drawBg = (hov: boolean) => {
+      btnBg.clear();
+      btnBg.fillStyle(hov ? 0x1a2800 : 0x080e1a, hov ? 0.95 : 0.85);
+      btnBg.fillRoundedRect(bx, by, bw, bh, 5);
+      btnBg.lineStyle(hov ? 2 : 1.5, hov ? 0xffdd55 : 0xffaa33, hov ? 1.0 : 0.70);
+      btnBg.strokeRoundedRect(bx, by, bw, bh, 5);
+    };
+    drawBg(false);
+    this.endCycleBtn = this.add.text(bx + bw / 2, by + bh / 2, 'End Cycle  ▶', {
+      fontSize: '15px', color: '#ffaa33', fontFamily: 'monospace', fontStyle: 'bold',
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    this.endCycleBtn.on('pointerover', () => { this.endCycleBtn.setColor('#ffdd66'); drawBg(true); });
+    this.endCycleBtn.on('pointerout',  () => { this.endCycleBtn.setColor('#ffaa33'); drawBg(false); });
     this.endCycleBtn.on('pointerdown', () => this._onEndCycleTick());
   }
 

@@ -15,9 +15,6 @@ import type { WindCorridor, WindJunction }    from '@data/WindNetwork';
 import type { ITradewindSystem } from './ITradewindSystem';
 import type { IGameStateManager } from './IGameStateManager';
 
-/** How many spine steps ahead we scan when looking for an upcoming junction. */
-const JUNCTION_LOOK_AHEAD = 6;
-
 export class TradewindSystem implements ITradewindSystem {
   constructor(private _gsm: IGameStateManager) {}
 
@@ -28,24 +25,22 @@ export class TradewindSystem implements ITradewindSystem {
     return this._gsm.windNetwork.corridors.find(c => c.id === id) ?? null;
   }
 
-  /** Nearest junction within LOOK_AHEAD steps of the current spine position. */
-  private _nearestJunctionAhead(): WindJunction | null {
+  /**
+   * Returns the junction the city is currently sitting on (or within 1 hex of),
+   * or null if there is none.  Only checks the **current** position, not ahead.
+   */
+  private _junctionAtCurrentPosition(): WindJunction | null {
     const corr = this._activeCorridor();
     if (!corr) return null;
 
-    const idx     = this._gsm.currentSpineIndex;
-    const network = this._gsm.windNetwork;
-    const scan    = Math.min(idx + JUNCTION_LOOK_AHEAD, corr.spine.length - 1);
+    const idx      = this._gsm.currentSpineIndex;
+    const cityHex  = corr.spine[idx];
+    if (!cityHex) return null;
 
-    for (let i = idx; i <= scan; i++) {
-      const j = network.junctions.find(j => {
-        // Junction is "at" this spine hex if its hex is within 1 step
-        return hexDistance(j.hex, corr.spine[i]!) <= 1 &&
-               j.corridorIds.includes(corr.id);
-      });
-      if (j) return j;
-    }
-    return null;
+    const network = this._gsm.windNetwork;
+    return network.junctions.find(j =>
+      hexDistance(j.hex, cityHex) <= 1 && j.corridorIds.includes(corr.id),
+    ) ?? null;
   }
 
   // ── ITradewindSystem ───────────────────────────────────────────────────
@@ -65,14 +60,14 @@ export class TradewindSystem implements ITradewindSystem {
   }
 
   isAtJunction(): boolean {
-    return this._nearestJunctionAhead() !== null;
+    return this._junctionAtCurrentPosition() !== null;
   }
 
   getUpcomingJunction(): {
     junction: WindJunction;
     options: Array<{ corridor: WindCorridor; spineIndex: number; direction: 'forward' | 'backward' }>;
   } | null {
-    const junction = this._nearestJunctionAhead();
+    const junction = this._junctionAtCurrentPosition();
     if (!junction) return null;
 
     const activeId  = this._gsm.currentCorridorId;
