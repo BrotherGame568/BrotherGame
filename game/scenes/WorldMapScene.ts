@@ -37,15 +37,18 @@ const ROUTE_COLORS   = [0x3399ff, 0x33cc77, 0xff9933] as const;
 const ROUTE_TEXT_HEX = ['#5599ff', '#44dd88', '#ffaa44'] as const;
 
 // ── Biome noise ─────────────────────────────────────────────
-// Value noise via integer hashing + bilinear interpolation,
-// layered into FBM to produce large organic terrain blobs.
+// Correct 32-bit hash using Math.imul to avoid JavaScript float-XOR overflow.
+// Two FBM channels → elevation + moisture → biome colour lookup.
 
-function _hashPair(ix: number, iy: number): number {
-  let h = (((ix * 374761393) ^ (iy * 668265263)) >>> 0);
-  h ^= h >>> 13;
-  h  = (Math.imul(h, 1274126177)) >>> 0;
-  h ^= h >>> 16;
-  return h / 0xffffffff;
+function _h32(n: number): number {
+  n = (Math.imul((n ^ (n >>> 16)) >>> 0, 0x45d9f3b)) >>> 0;
+  n = (Math.imul((n ^ (n >>> 16)) >>> 0, 0x45d9f3b)) >>> 0;
+  return ((n ^ (n >>> 16)) >>> 0) / 0x100000000;
+}
+
+function _noise2(ix: number, iy: number): number {
+  const code = (Math.imul(ix & 0xFFFF, 73856093) ^ Math.imul(iy & 0xFFFF, 19349663)) >>> 0;
+  return _h32(code);
 }
 
 function _smoothNoise(x: number, y: number): number {
@@ -54,70 +57,65 @@ function _smoothNoise(x: number, y: number): number {
   const ux = fx * fx * (3 - 2 * fx);
   const uy = fy * fy * (3 - 2 * fy);
   return (
-    _hashPair(x0,   y0  ) * (1 - ux) * (1 - uy) +
-    _hashPair(x0+1, y0  ) * ux       * (1 - uy) +
-    _hashPair(x0,   y0+1) * (1 - ux) * uy       +
-    _hashPair(x0+1, y0+1) * ux       * uy
+    _noise2(x0,   y0  ) * (1 - ux) * (1 - uy) +
+    _noise2(x0+1, y0  ) * ux       * (1 - uy) +
+    _noise2(x0,   y0+1) * (1 - ux) * uy       +
+    _noise2(x0+1, y0+1) * ux       * uy
   );
 }
 
-function _fbm(px: number, py: number, octaves: number): number {
-  let v = 0, amp = 1, freq = 1, total = 0;
-  for (let i = 0; i < octaves; i++) {
+function _fbm(px: number, py: number, octs: number): number {
+  let v = 0, amp = 1, freq = 1, tot = 0;
+  for (let i = 0; i < octs; i++) {
     v += _smoothNoise(px * freq, py * freq) * amp;
-    total += amp;
-    amp  *= 0.5;
-    freq *= 2.0;
+    tot += amp; amp *= 0.5; freq *= 2.1;
   }
-  return v / total;
+  return v / tot;
 }
 
 /**
- * Returns a biome colour for a hex at axial coords (q, r).
+ * Returns a biome colour for world hex (q, r).
  *
- * Two independent FBM channels (elevation + moisture) at scale 1/18 produce
- * large organic continent shapes.  Elevation is biased upward so ~65% of the
- * map is land, keeping oceans as dramatic gaps rather than the dominant feature.
- * Colors are deliberately vivid so different biomes pop at a glance.
+ * Elevation = FBM + a continental-shelf boost that raises the centre of the
+ * world above sea level, guaranteeing land near the city regardless of noise.
+ * Moisture is an independent FBM channel controlling vegetation type.
  */
 function worldTileColor(q: number, r: number): number {
   const nx = q + r * 0.5;
   const ny = r * 0.866;
-  const sc = 1 / 18;
+  const sc = 1 / 8;   // coarser scale → bigger blobs, clearly visible at zoom 2
 
-  // Use well-separated seed offsets to de-correlate the two channels
-  const rawElev  = _fbm((nx + 127.3) * sc, (ny + 311.7) * sc, 5);
-  const rawMoist = _fbm((nx - 241.9) * sc, (ny + 89.1)  * sc, 4);
+  const rawE = _fbm((nx + 31.5) * sc, (ny + 17.3) * sc, 4);
+  const rawM = _fbm((nx - 53.1) * sc, (ny + 44.7) * sc, 3);
 
-  // Bias elevation so the centre of the world tends toward land.
-  // The smooth clamp pushes 60-70% of tiles above the ocean line.
-  const e = Math.max(0, Math.min(1, rawElev * 1.55 - 0.20));
-  const m = rawMoist;
+  // Continental shelf: smooth +0.45 boost at centre, fading to 0 at radius 48
+  const dist  = Math.sqrt(nx * nx + ny * ny * (1 / 0.75));
+  const shelf = Math.max(0, (1 - dist / 48)) * 0.45;
+
+  const e = Math.max(0, Math.min(1, rawE + shelf - 0.10));
+  const m = rawM;
 
   // ── Water ────────────────────────────────────────────────
-  if (e < 0.10) return 0x04101e;   // abyssal ocean
-  if (e < 0.20) return 0x091e3a;   // deep sea
-  if (e < 0.30) return 0x0f3060;   // open ocean
-  if (e < 0.38) return 0x1a5080;   // shallow sea
-  if (e < 0.44) return m > 0.55    // coast
-    ? 0x2a7a58                      //   mangrove coast
-    : 0x9aaa70;                     //   sandy coast / beach
+  if (e < 0.08) return 0x020c18;   // abyssal trench
+  if (e < 0.18) return 0x071828;   // deep ocean
+  if (e < 0.28) return 0x0d2e52;   // open ocean
+  if (e < 0.36) return 0x165c80;   // shallow sea
+  if (e < 0.42) return m > 0.52 ? 0x2a8060 : 0xb8aa72; // mangrove / sand beach
 
-  // ── Highland / alpine ────────────────────────────────────
-  if (e > 0.88) return 0xe8e8f0;   // snow cap
-  if (e > 0.76) return m < 0.35
-    ? 0x7a6a50                      //   arid highlands
-    : 0x5a6858;                     //   alpine meadow
+  // ── Alpine ───────────────────────────────────────────────
+  if (e > 0.90) return 0xdce8f0;   // snow peaks
+  if (e > 0.78) return m < 0.38 ? 0x7c6a50 : 0x606858; // bare rock / alpine
 
-  // ── Mainland (governed by moisture) ──────────────────────
-  if (m > 0.75) return e > 0.65 ? 0x1a5c24 : 0x28803a; // tropical rainforest
-  if (m > 0.62) return e > 0.65 ? 0x2a7030 : 0x38a048; // temperate forest
-  if (m > 0.50) return e > 0.65 ? 0x4a8c38 : 0x5aaa46; // woodland / mixed
-  if (m > 0.38) return e > 0.65 ? 0x6a9c30 : 0x88b840; // grassland / plains
-  if (m > 0.26) return e > 0.62 ? 0x8a7828 : 0xaaa035; // savanna / dry grass
-  if (m > 0.16) return e > 0.60 ? 0x907040 : 0xb89850; // scrub / steppe
-  return e > 0.58 ? 0xa0642a : 0xc8a45a;                // desert / dunes
+  // ── Mainland (by moisture) ────────────────────────────────
+  if (m > 0.74) return e > 0.64 ? 0x1e6828 : 0x30943c; // dense rainforest
+  if (m > 0.60) return e > 0.64 ? 0x347838 : 0x46a84e; // temperate forest
+  if (m > 0.48) return e > 0.63 ? 0x4e9040 : 0x66b84e; // woodland / mixed
+  if (m > 0.36) return e > 0.62 ? 0x70a030 : 0x96c840; // grassland / plains
+  if (m > 0.24) return e > 0.60 ? 0x8c8c28 : 0xb0b038; // savanna / dry grass
+  if (m > 0.14) return e > 0.58 ? 0xa07832 : 0xc8a84a; // scrub / steppe
+  return e > 0.56 ? 0xb86820 : 0xe0b85a;                // desert / golden dunes
 }
+
 
 const SITE_DISPLAY: Record<string, { label: string; color: number }> = {
   town:    { label: 'Town',    color: 0x3388dd },
