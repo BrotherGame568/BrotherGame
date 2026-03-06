@@ -14,6 +14,8 @@ import type { MissionContext, MissionResult } from '@data/MissionContext';
 import type { TradewindOption } from '@data/TradewindOption';
 import type { CityState } from '@data/CityState';
 import type { SiteVisitRecord } from '@data/SiteVisitRecord';
+import type { WindNetwork } from '@data/WindNetwork';
+import { EMPTY_WIND_NETWORK } from '@data/WindNetwork';
 
 export interface IGameStateManager {
   // --- Cycle state ---
@@ -27,6 +29,15 @@ export interface IGameStateManager {
   setCityHex(hex: AxialCoord): void;
   setWindCorridor(corridor: AxialCoord[]): void;
   setWindOptions(options: TradewindOption[]): void;
+
+  // --- Persistent wind network (set once at world generation) ---
+  readonly windNetwork: WindNetwork;
+  /** ID of the WindCorridor the city is currently travelling. */
+  readonly currentCorridorId: string;
+  /** Index within the current corridor's spine array. */
+  readonly currentSpineIndex: number;
+  setWindNetwork(network: WindNetwork): void;
+  setCurrentCorridor(corridorId: string, spineIndex: number): void;
 
   // --- Resources ---
   readonly resources: ResourceStore;
@@ -78,6 +89,9 @@ export class GameStateManagerStub implements IGameStateManager {
   cityHex: AxialCoord = { q: 0, r: 0 };
   windCorridor: AxialCoord[] = [];
   windOptions: TradewindOption[] = [];
+  windNetwork: WindNetwork = EMPTY_WIND_NETWORK;
+  currentCorridorId = '';
+  currentSpineIndex = 0;
   resources: ResourceStore = createDefaultResourceStore();
   heroRoster: Hero[] = [];
   missionParty: MissionParty | null = null;
@@ -91,6 +105,8 @@ export class GameStateManagerStub implements IGameStateManager {
   setCityHex(hex: AxialCoord): void { this.cityHex = hex; }
   setWindCorridor(corridor: AxialCoord[]): void { this.windCorridor = corridor; }
   setWindOptions(options: TradewindOption[]): void { this.windOptions = options; }
+  setWindNetwork(network: WindNetwork): void { this.windNetwork = network; }
+  setCurrentCorridor(cId: string, idx: number): void { this.currentCorridorId = cId; this.currentSpineIndex = idx; }
   setResources(store: ResourceStore): void { this.resources = store; }
   setHeroRoster(roster: Hero[]): void { this.heroRoster = roster; }
   updateHeroStatus(heroId: string, updates: Partial<Hero>): void {

@@ -14,6 +14,8 @@ import { generateHexMap } from './MapGenerator';
 import { seedResourceStore } from './ResourceDefinitions';
 import { createDefaultHero } from './Hero';
 import { createDefaultCityState } from './CityState';
+import { generateWindNetwork } from './WindNetworkGenerator';
+import { hexDistance, hexId } from './HexTile';
 
 // ── Building slot layout ──────────────────────────────────────
 // 7 building slots with predetermined IDs matching BUILDING_IDS.
@@ -81,6 +83,33 @@ export function initializeGameState(gsm: IGameStateManager): void {
   // Wind state is empty until first WorldMapScene generates options
   gsm.setWindCorridor([]);
   gsm.setWindOptions([]);
+
+  // Generate the persistent wind corridor network (seed 42 → deterministic world)
+  const WORLD_RADIUS = 60;
+  const windNetwork = generateWindNetwork(WORLD_RADIUS, 39);
+  gsm.setWindNetwork(windNetwork);
+
+  // Find the starting corridor: pick the one whose spine passes closest to origin
+  const origin = { q: 0, r: 0 };
+  let bestCorridorId = '';
+  let bestSpineIdx   = 0;
+  let bestDist       = Infinity;
+  for (const corridor of windNetwork.corridors) {
+    for (let i = 0; i < corridor.spine.length; i++) {
+      const d = hexDistance(corridor.spine[i]!, origin);
+      if (d < bestDist) {
+        bestDist       = d;
+        bestCorridorId = corridor.id;
+        bestSpineIdx   = i;
+      }
+    }
+  }
+  if (bestCorridorId) {
+    const startCorridor = windNetwork.corridors.find(c => c.id === bestCorridorId)!;
+    gsm.setCurrentCorridor(bestCorridorId, bestSpineIdx);
+    gsm.setCityHex(startCorridor.spine[bestSpineIdx]!);
+    gsm.setWindCorridor(startCorridor.bandHexes);
+  }
 
   // No active mission
   gsm.setMissionParty(null);

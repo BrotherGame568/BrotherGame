@@ -16,7 +16,8 @@ import type { IAudioService }           from '@services/IAudioService';
 import type { HexTile, AxialCoord }     from '@data/HexTile';
 import { hexId, hexDistance }           from '@data/HexTile';
 import type { Hero }                    from '@data/Hero';
-import type { TradewindOption }         from '@data/TradewindOption';
+import type { WindCorridor, WindJunction } from '@data/WindNetwork';
+import { fbm }                          from '@data/NoiseUtils';
 import type { ServiceBundle }           from '../../src/main';
 
 export const WORLD_MAP_SCENE_KEY = 'WorldMapScene';
@@ -33,45 +34,20 @@ const MAX_ZOOM     = 14.0;
 // Starting zoom: show roughly a 22-ring viewport width, not the whole map
 const INITIAL_ZOOM = 2.0;
 
-const ROUTE_COLORS   = [0x3399ff, 0x33cc77, 0xff9933] as const;
-const ROUTE_TEXT_HEX = ['#5599ff', '#44dd88', '#ffaa44'] as const;
-
-// ── Biome noise ─────────────────────────────────────────────
-// Correct 32-bit hash using Math.imul to avoid JavaScript float-XOR overflow.
-// Two FBM channels → elevation + moisture → biome colour lookup.
-
-function _h32(n: number): number {
-  n = (Math.imul((n ^ (n >>> 16)) >>> 0, 0x45d9f3b)) >>> 0;
-  n = (Math.imul((n ^ (n >>> 16)) >>> 0, 0x45d9f3b)) >>> 0;
-  return ((n ^ (n >>> 16)) >>> 0) / 0x100000000;
-}
-
-function _noise2(ix: number, iy: number): number {
-  const code = (Math.imul(ix & 0xFFFF, 73856093) ^ Math.imul(iy & 0xFFFF, 19349663)) >>> 0;
-  return _h32(code);
-}
-
-function _smoothNoise(x: number, y: number): number {
-  const x0 = Math.floor(x), y0 = Math.floor(y);
-  const fx = x - x0, fy = y - y0;
-  const ux = fx * fx * (3 - 2 * fx);
-  const uy = fy * fy * (3 - 2 * fy);
-  return (
-    _noise2(x0,   y0  ) * (1 - ux) * (1 - uy) +
-    _noise2(x0+1, y0  ) * ux       * (1 - uy) +
-    _noise2(x0,   y0+1) * (1 - ux) * uy       +
-    _noise2(x0+1, y0+1) * ux       * uy
-  );
-}
-
-function _fbm(px: number, py: number, octs: number): number {
-  let v = 0, amp = 1, freq = 1, tot = 0;
-  for (let i = 0; i < octs; i++) {
-    v += _smoothNoise(px * freq, py * freq) * amp;
-    tot += amp; amp *= 0.5; freq *= 2.1;
-  }
-  return v / tot;
-}
+// ── Particle system tuning ─────────────────────────────────────────────────
+/** Particles per corridor for the inactive (ghost) corridors. */
+const GHOST_PARTICLE_COUNT  = 50;   // baseline — scaled by corridor length
+/** Particles per corridor for the active (prominent) corridor. */
+const ACTIVE_PARTICLE_COUNT = 110;  // baseline
+/** Reference spine length (hexes) used to normalise per-corridor particle counts. */
+const PARTICLE_REF_LEN      = 10;
+/** Swirl frequency in rad / ms — controls subtle time-varying drift within band. */
+const SWIRL_FREQ            = 0.0010;
+/** Half-width of the particle stream (px in mapContainer space). */
+const BAND_SPREAD_ACTIVE    = TILE_R * 2.0;
+const BAND_SPREAD_GHOST     = TILE_R * 1.5;
+/** Small time-varying drift added on top of the static cross-band position. */
+const STREAM_DRIFT          = TILE_R * 0.3;
 
 /**
  * Returns a biome colour for world hex (q, r).
@@ -85,8 +61,8 @@ function worldTileColor(q: number, r: number): number {
   const ny = r * 0.866;
   const sc = 1 / 8;   // coarser scale → bigger blobs, clearly visible at zoom 2
 
-  const rawE = _fbm((nx + 31.5) * sc, (ny + 17.3) * sc, 4);
-  const rawM = _fbm((nx - 53.1) * sc, (ny + 44.7) * sc, 3);
+  const rawE = fbm((nx + 31.5) * sc, (ny + 17.3) * sc, 4);
+  const rawM = fbm((nx - 53.1) * sc, (ny + 44.7) * sc, 3);
 
   // Continental shelf: smooth +0.45 boost at centre, fading to 0 at radius 48
   const dist  = Math.sqrt(nx * nx + ny * ny * (1 / 0.75));
@@ -167,7 +143,43 @@ export class WorldMapScene extends Phaser.Scene {
   private gameTileContainer!: Phaser.GameObjects.Container;
   private labelObjects:  Phaser.GameObjects.GameObject[] = [];
   private screenLabels: ScreenHexLabel[] = [];
-  private corridorGraphics: Phaser.GameObjects.Graphics[] = [];
+  /** Static graphics layer: all corridor bands, spines, junction markers. */
+  private _networkGfx:    Phaser.GameObjects.Graphics | null = null;
+  /** Reference to the world terrain graphics layer (for zoom-based alpha). */
+  private _terrainGfx:    Phaser.GameObjects.Graphics | null = null;
+  /** Permanent outline ring drawn at the edge of the reachable hex area. */
+  private _reachOutlineGfx: Phaser.GameObjects.Graphics | null = null;
+  /** Dark distance fog drawn between terrain and corridors. */
+  private _fogGfx:            Phaser.GameObjects.Graphics | null = null;
+  /** Interactive zones along corridor spines for hover detection. */
+  private _corridorZones:     Phaser.GameObjects.Zone[] = [];
+  /** Temporary highlight drawn over a hovered corridor. */
+  private _hoverGfx:          Phaser.GameObjects.Graphics | null = null;
+  /** Floating name tag shown while hovering a corridor. */
+  private _corridorNameLabel: Phaser.GameObjects.Text | null = null;
+  /** ID of the corridor currently under the pointer (null if none). */
+  private _hoveredCorridorId: string | null = null;
+  /** Fast lookup: bandHex ID → corridor ID, rebuilt by _renderWindNetwork(). */
+  private _corridorBandSets: Map<string, string> = new Map();
+  /** One shared Graphics redrawn every frame for all streak/streamline particles. */
+  private _streamGfx: Phaser.GameObjects.Graphics | null = null;
+  /** Pure data records describing each animated streak — no Phaser objects per streak. */
+  private _particleData: Array<{
+    t: number;          // position [0..1] along spine
+    speed: number;      // advance per second (normalised)
+    corridorIdx: number;
+    phase: number;      // per-particle drift phase
+    lateralT: number;   // static cross-band offset [-1..1]
+    bandSpread: number;      // half-width of corridor band (px, mapContainer space)
+    color: number;           // hex colour
+    alpha: number;           // peak alpha (modulated by fade)
+    streakPx: number;        // base streak length in mapContainer px
+    streakMult: number;      // per-particle length multiplier [0.3..2.0]
+    fadePhase: number;       // phase offset for the slow fade-in/out sine
+    fadePeriod: number;      // full fade cycle duration in ms
+  }> = [];
+  /** Junction selection panel. */
+  private _junctionOverlay: Phaser.GameObjects.Container | null = null;
   private cityDot: Phaser.GameObjects.Graphics | null = null;
 
   private currentZoom = 1;
@@ -209,7 +221,18 @@ export class WorldMapScene extends Phaser.Scene {
     this.endCycleBtn     = null!;
     this.labelObjects    = [];
     this.screenLabels    = [];
-    this.corridorGraphics = [];
+    this._networkGfx         = null;
+    this._terrainGfx          = null;
+    this._reachOutlineGfx     = null;
+    this._streamGfx           = null;
+    this._particleData        = [];
+    this._junctionOverlay     = null;
+    this._fogGfx              = null;
+    this._corridorZones       = [];
+    this._hoverGfx            = null;
+    this._corridorNameLabel   = null;
+    this._hoveredCorridorId   = null;
+    this._corridorBandSets    = new Map();
     this.cityDot         = null;
     this.routeOverlay    = null;
     this.modalContainer  = null;
@@ -251,11 +274,37 @@ export class WorldMapScene extends Phaser.Scene {
     this.mapContainer = this.add.container(W / 2, this.mapCtrY);
     this.mapContainer.setScale(this.currentZoom);
     this._buildWorldBackground();
+    this._buildFogOverlay();         // distance-based dark veil between terrain and corridors
+    this._renderWindNetwork();       // persistent corridor bands + spines + junction markers
 
     this.gameTileContainer = this.add.container(0, 0);
     this.mapContainer.add(this.gameTileContainer);
     this._buildGameTiles();
+    this._buildParticles();      // animated dots flowing along corridor spines
     this._updateLabelVisibility();
+
+    // Track pointer: update name label position + corridor hover detection
+    this.input.on('pointermove', (ptr: Phaser.Input.Pointer) => {
+      this._corridorNameLabel?.setPosition(ptr.x + 14, ptr.y - 24);
+      if (!this.isDragging) {
+        // Convert screen → mapContainer local → axial hex
+        const lx    = (ptr.x - this.mapContainer.x) / this.currentZoom;
+        const ly    = (ptr.y - this.mapContainer.y) / this.currentZoom;
+        const q     = Math.round(lx / (TILE_R * 1.5));
+        const r     = Math.round((ly / (TILE_R * SQRT3 * TILE_SY)) - q * 0.5);
+        const hId   = hexId({ q, r });
+        const corrId = this._corridorBandSets.get(hId) ?? null;
+        if (corrId !== this._hoveredCorridorId) {
+          this._hoveredCorridorId = corrId;
+          if (corrId) {
+            const corr = this.gsm.windNetwork.corridors.find(c => c.id === corrId);
+            if (corr) this._onCorridorHover(corr);
+          } else {
+            this._onCorridorOut();
+          }
+        }
+      }
+    });
 
     this._renderTitleBar(W);
     this._renderHintLine(W, H, HINT_H);
@@ -298,6 +347,7 @@ export class WorldMapScene extends Phaser.Scene {
 
   private _buildWorldBackground(): void {
     const gfx = this.add.graphics();
+    this._terrainGfx = gfx;
     this.mapContainer.add(gfx);
     for (let q = -WORLD_RADIUS; q <= WORLD_RADIUS; q++) {
       for (let r = -WORLD_RADIUS; r <= WORLD_RADIUS; r++) {
@@ -334,21 +384,31 @@ export class WorldMapScene extends Phaser.Scene {
       const tileGfx = this.add.graphics();
       this.gameTileContainer.add(tileGfx);
 
+      // Terrain-matched fill; site-type color as outline ring.
+      const terrColor = worldTileColor(tile.coord.q, tile.coord.r);
       const drawTile = (hovered: boolean) => {
         tileGfx.clear();
         if (isCity) {
-          tileGfx.fillStyle(hovered ? 0xddbb22 : 0x887722, 0.80);
-        } else if (accessible) {
-          tileGfx.fillStyle(display.color, hovered ? 0.80 : 0.55);
-        } else {
-          tileGfx.fillStyle(0x222222, 0.42);
-        }
-        tileGfx.fillPoints(pts, true);
-        if (isCity) {
+          tileGfx.fillStyle(hovered ? 0xddbb22 : 0x887722, 0.85);
+          tileGfx.fillPoints(pts, true);
           tileGfx.lineStyle(hovered ? 3 : 2, 0xf7c948, hovered ? 1 : 0.9);
           tileGfx.strokePoints(pts, true);
+        } else if (accessible) {
+          // Base fill: underlying terrain color at moderate alpha
+          tileGfx.fillStyle(terrColor, hovered ? 0.82 : 0.60);
+          tileGfx.fillPoints(pts, true);
+          // Site-type tint overlay (thin; just adds site color on hover or always subtle)
+          if (hovered) {
+            tileGfx.fillStyle(display.color, 0.25);
+            tileGfx.fillPoints(pts, true);
+          }
+          // Site-type as outline stroke
+          tileGfx.lineStyle(hovered ? 2.5 : 1.5, display.color, hovered ? 1 : 0.70);
+          tileGfx.strokePoints(pts, true);
         } else {
-          tileGfx.lineStyle(hovered ? 3 : 2, stateColor, accessible ? (hovered ? 1 : 0.9) : 0.25);
+          tileGfx.fillStyle(terrColor, 0.22);
+          tileGfx.fillPoints(pts, true);
+          tileGfx.lineStyle(1, 0x666666, 0.18);
           tileGfx.strokePoints(pts, true);
         }
       };
@@ -390,6 +450,37 @@ export class WorldMapScene extends Phaser.Scene {
     }
 
     const { x: cx, y: cy } = tilePx(this.gsm.cityHex.q, this.gsm.cityHex.r);
+
+    // ── Reachable-area boundary ring ────────────────────────────────────────
+    // Draw only the hex edges that face the outside (no neighbour within GAME_RADIUS).
+    const ringGfx = this.add.graphics();
+    this.gameTileContainer.add(ringGfx);
+    this._reachOutlineGfx = ringGfx;
+    ringGfx.lineStyle(2.0, 0xaabb88, 0.55);
+    const HEX_DIR_OFFSETS = [
+      { dq:  1, dr:  0 }, { dq:  1, dr: -1 }, { dq:  0, dr: -1 },
+      { dq: -1, dr:  0 }, { dq: -1, dr:  1 }, { dq:  0, dr:  1 },
+    ];
+    // Vertex offsets for each flat-top hex edge (edge i = between vertex i and i+1).
+    for (const tile of this.gsm.hexMap) {
+      if (hexDistance(tile.coord, this.gsm.cityHex) !== GAME_RADIUS) continue;
+      const { x: tx, y: ty } = tilePx(tile.coord.q, tile.coord.r);
+      const tpts = tilePts(tx, ty);
+      for (let ei = 0; ei < 6; ei++) {
+        const nb = HEX_DIR_OFFSETS[ei]!;
+        const nq = tile.coord.q + nb.dq;
+        const nr = tile.coord.r + nb.dr;
+        if (hexDistance({ q: nq, r: nr }, this.gsm.cityHex) <= GAME_RADIUS) continue;
+        // This edge faces outside — draw it.
+        const vA = tpts[ei]!;
+        const vB = tpts[(ei + 1) % 6]!;
+        ringGfx.beginPath();
+        ringGfx.moveTo(vA.x, vA.y);
+        ringGfx.lineTo(vB.x, vB.y);
+        ringGfx.strokePath();
+      }
+    }
+
     const dotGfx = this.add.graphics();
     dotGfx.fillStyle(0xf7c948, 0.22); dotGfx.fillCircle(cx, cy, TILE_R * 1.05);
     dotGfx.fillStyle(0xf7c948, 0.62); dotGfx.fillCircle(cx, cy, TILE_R * 0.45);
@@ -446,6 +537,10 @@ export class WorldMapScene extends Phaser.Scene {
     for (const lbl of this.screenLabels) {
       lbl.text.setAlpha(show ? 1 : 0);
     }
+    // Terrain fades to near-invisible when zoomed far out; particles take over.
+    const zoomT = Phaser.Math.Clamp(
+      (this.currentZoom - MIN_ZOOM) / (INITIAL_ZOOM - MIN_ZOOM), 0, 1);
+    if (this._terrainGfx) this._terrainGfx.setAlpha(0.20 + zoomT * 0.60);
   }
 
   private _updateScreenLabelTransforms(): void {
@@ -459,108 +554,491 @@ export class WorldMapScene extends Phaser.Scene {
     }
   }
 
-  private _showRouteSelectionOverlay(): void {
-    const W = this.scale.width;
-    const H = this.scale.height;
-    const options = this.tradewindSystem.generateOptions(this.gsm.cityHex, this.gsm.cycleCount);
-    if (options.length === 0) return;
+  // ── Wind corridor network rendering ──────────────────────────────────────
 
-    options.forEach((opt, i) => {
-      const color  = ROUTE_COLORS[i % ROUTE_COLORS.length]!;
-      const hexSet = new Set(opt.windCorridor.map(c => 'q' + c.q + '_r' + c.r));
-      const gfx    = this.add.graphics();
-      for (let q = -WORLD_RADIUS; q <= WORLD_RADIUS; q++) {
-        for (let r = -WORLD_RADIUS; r <= WORLD_RADIUS; r++) {
-          if (Math.abs(-q - r) > WORLD_RADIUS) continue;
-          if (!hexSet.has('q' + q + '_r' + r)) continue;
-          const { x, y } = tilePx(q, r);
-          const pts = tilePts(x, y);
-          gfx.fillStyle(color, 0.32); gfx.fillPoints(pts, true);
-          gfx.lineStyle(1, color, 0.60); gfx.strokePoints(pts, true);
+  /**
+   * Draw the persistent wind network:
+   *  - No band hexes visible by default (shown only on hover via _onCorridorHover).
+   *  - No spine centre-line (particles ARE the corridor visual).
+   *  - Arrow direction indicators at each spine midpoint (subtle).
+   *  - Junction markers where corridors meet.
+   *  - Rebuilds _corridorBandSets for pointer hover hit-testing.
+   */
+  private _renderWindNetwork(): void {
+    this._networkGfx?.destroy();
+    this._networkGfx = null;
+
+    // Clear any stale hover state from the previous network build
+    this._hoveredCorridorId = null;
+    this._hoverGfx?.clear();
+    this._corridorNameLabel?.setVisible(false);
+
+    const network  = this.gsm.windNetwork;
+    const activeId = this.gsm.currentCorridorId;
+    if (network.corridors.length === 0) return;
+
+    // ── Build fast hex-to-corridor lookup for pointer hit-testing ──────────
+    this._corridorBandSets.clear();
+    for (const corr of network.corridors) {
+      for (const h of corr.bandHexes) {
+        const id = hexId(h);
+        // Active corridor wins overlapping cells so hovering it is easier
+        if (!this._corridorBandSets.has(id) || corr.id === activeId) {
+          this._corridorBandSets.set(id, corr.id);
         }
       }
-      this.mapContainer.add(gfx);
-      this.corridorGraphics.push(gfx);
-    });
+    }
 
-    this.routeOverlay = this.add.container(0, 0);
-    const PANEL_H  = Math.floor(H * 0.26);
-    const backdrop = this.add.graphics();
-    backdrop.fillStyle(0x000000, 0.70);
-    backdrop.fillRect(0, H - PANEL_H - 8, W, PANEL_H + 8);
-    this.routeOverlay.add(backdrop);
+    const gfx = this.add.graphics();
 
-    const cardW  = 300;
-    const cardH  = 140;
-    const gap    = 24;
-    const totalW = options.length * (cardW + gap) - gap;
-    const startX = (W - totalW) / 2;
-    const startY = H - PANEL_H + 10;
+    // // ── Arrow direction indicators (subtle, one per corridor at midpoint) ──
+    // for (const corr of network.corridors) {
+    //   const isActive = corr.id === activeId;
+    //   const midIdx   = Math.floor(corr.spine.length / 2);
+    //   if (midIdx < 1) continue;
+    //   const tip  = tilePx(corr.spine[midIdx]!.q,     corr.spine[midIdx]!.r);
+    //   const base = tilePx(corr.spine[midIdx - 1]!.q, corr.spine[midIdx - 1]!.r);
+    //   const ang  = Math.atan2(tip.y - base.y, tip.x - base.x);
+    //   const AL   = TILE_R * 1.2, AW = TILE_R * 0.50;
+    //   gfx.fillStyle(corr.color, isActive ? 0.70 : 0.38);
+    //   gfx.fillTriangle(
+    //     tip.x + Math.cos(ang) * AL,       tip.y + Math.sin(ang) * AL,
+    //     tip.x + Math.cos(ang + 2.4) * AW, tip.y + Math.sin(ang + 2.4) * AW,
+    //     tip.x + Math.cos(ang - 2.4) * AW, tip.y + Math.sin(ang - 2.4) * AW,
+    //   );
+    // }
 
-    options.forEach((option, i) => {
-      const x     = startX + i * (cardW + gap);
-      const y     = startY;
-      const color = ROUTE_COLORS[i % ROUTE_COLORS.length]!;
-      const tCol  = ROUTE_TEXT_HEX[i % ROUTE_TEXT_HEX.length]!;
+    // ── Junction markers — soft rings where corridors cross ─────────────────
+    // (drawn only on hover — see _onCorridorHover)
 
-      const card = this.add.graphics();
-      const drawCard = (hov: boolean) => {
-        card.clear();
-        card.fillStyle(color, hov ? 0.45 : 0.20);
-        card.fillRoundedRect(x, y, cardW, cardH, 10);
-        card.lineStyle(hov ? 3 : 2, hov ? 0xffffff : color, hov ? 1 : 0.75);
-        card.strokeRoundedRect(x, y, cardW, cardH, 10);
-        card.fillStyle(color, hov ? 1 : 0.7);
-        card.fillRect(x, y + 10, 4, cardH - 20);
-      };
-      drawCard(false);
-      this.routeOverlay!.add(card);
-
-      const lbl1 = this.add.text(x + cardW / 2, y + 20, option.label, {
-        fontSize: '18px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0.5);
-      const lbl2 = this.add.text(x + cardW / 2, y + 50, option.description, {
-        fontSize: '12px', color: '#cccccc', fontFamily: 'monospace', wordWrap: { width: cardW - 30 },
-      }).setOrigin(0.5, 0);
-      const lbl3 = this.add.text(x + cardW / 2, y + 102, '-> ' + hexId(option.resultingCityHex), {
-        fontSize: '13px', color: tCol, fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0.5);
-      const lbl4 = this.add.text(x + cardW / 2, y + 122,
-        option.windCorridor.length + ' hexes in corridor', {
-          fontSize: '11px', color: '#666666', fontFamily: 'monospace',
-        }).setOrigin(0.5);
-      for (const t of [lbl1, lbl2, lbl3, lbl4]) this.routeOverlay!.add(t);
-
-      const hit = this.add.zone(x + cardW / 2, y + cardH / 2, cardW, cardH)
-        .setInteractive({ useHandCursor: true });
-      this.routeOverlay!.add(hit);
-      hit.on('pointerover', () => drawCard(true));
-      hit.on('pointerout',  () => drawCard(false));
-      hit.on('pointerdown', () => this._applyWindRoute(option));
-    });
-
-    this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  --  Choose a Wind Route');
-    this.endCycleBtn?.setVisible(false);
+    this.mapContainer.add(gfx);
+    this._networkGfx = gfx;
   }
 
-  private _applyWindRoute(option: TradewindOption): void {
-    this.tradewindSystem.applyChoice(option);
-    for (const g of this.corridorGraphics) g.destroy();
-    this.corridorGraphics = [];
-    this.routeOverlay?.destroy(true);
-    this.routeOverlay = null;
+  /** Draw translucent band hexes over a corridor when the player hovers it. */
+  private _onCorridorHover(corr: WindCorridor): void {
+    if (!this._hoverGfx) {
+      this._hoverGfx = this.add.graphics();
+      this.mapContainer.add(this._hoverGfx);
+    } else {
+      this._hoverGfx.clear();
+    }
+    const gfx = this._hoverGfx;
+    for (const c of corr.bandHexes) {
+      const { x, y } = tilePx(c.q, c.r);
+      const pts = tilePts(x, y);
+      gfx.fillStyle(corr.color, 0.15);
+      gfx.fillPoints(pts, true);
+      gfx.lineStyle(1, corr.color, 0.30);
+      gfx.strokePoints(pts, true);
+    }
+    // ── Junction markers on hovered corridor ──────────────────────────────
+    for (const j of this.gsm.windNetwork.junctions) {
+      if (!j.corridorIds.includes(corr.id)) continue;
+      const { x: jx, y: jy } = tilePx(j.hex.q, j.hex.r);
+      gfx.fillStyle(0xffffff, 0.65);
+      gfx.fillCircle(jx, jy, TILE_R * 0.28);
+      gfx.lineStyle(1.5, 0xffffff, 0.45);
+      gfx.strokeCircle(jx, jy, TILE_R * 0.55);
+    }
+    if (!this._corridorNameLabel) {
+      this._corridorNameLabel = this.add.text(0, 0, corr.name, {
+        fontSize: '13px', color: '#ffffff', fontFamily: 'monospace',
+        backgroundColor: '#000000bb', padding: { x: 7, y: 4 },
+      }).setDepth(200);
+    } else {
+      this._corridorNameLabel.setText(corr.name);
+      this._corridorNameLabel.setVisible(true);
+    }
+  }
+
+  /** Clear hover highlight and name label when pointer leaves a corridor. */
+  private _onCorridorOut(): void {
+    this._hoverGfx?.clear();
+    this._corridorNameLabel?.setVisible(false);
+  }
+
+  /**
+   * Build the streamline particle system.
+   * Creates one shared Graphics (redrawn every frame) and a plain data record
+   * per streak — no individual Phaser objects per particle.
+   */
+  private _buildParticles(): void {
+    // Destroy previous shared graphics if any
+    this._streamGfx?.destroy();
+    this._streamGfx = null;
+    this._particleData = [];
+
+    const network  = this.gsm.windNetwork;
+    const activeId = this.gsm.currentCorridorId;
+
+    // Single Graphics layer that will be cleared + redrawn each frame
+    const gfx = this.add.graphics();
+    this.mapContainer.add(gfx);
+    this._streamGfx = gfx;
+
+    for (let ci = 0; ci < network.corridors.length; ci++) {
+      const corr       = network.corridors[ci]!;
+      const isActive   = corr.id === activeId;
+      // Scale particle count proportionally to corridor length so short
+      // corridors aren't over-crowded and long ones aren't sparse.
+      const lenRatio   = Math.sqrt(corr.spine.length / PARTICLE_REF_LEN);
+      const baseCount  = isActive ? ACTIVE_PARTICLE_COUNT : GHOST_PARTICLE_COUNT;
+      const count      = Math.max(8, Math.round(baseCount * lenRatio));
+      const alpha      = isActive ? 0.60 : 0.28;
+      const color      = isActive ? 0x82FFFC : corr.color;
+      const travSecs   = isActive ? 40.0 : 116.0;
+      const bandSpread = isActive ? BAND_SPREAD_ACTIVE : BAND_SPREAD_GHOST;
+      const streakPx   = isActive ? TILE_R * 4.2 : TILE_R * 2.6;
+
+      for (let pi = 0; pi < count; pi++) {
+        const t0         = ((pi / count) + Math.random() * (1 / count)) % 1;
+        const phase      = Math.random() * Math.PI * 2;
+        // Gaussian lateral distribution — dense near spine centre, sparse at edges.
+        const u1 = Math.random(), u2 = Math.random();
+        const z  = Math.sqrt(-2 * Math.log(u1 + 1e-9)) * Math.cos(2 * Math.PI * u2);
+        const lateralT   = Math.max(-1, Math.min(1, z * 0.38));
+        // Per-particle tail-length multiplier: log-normal so most are moderate
+        // but occasional long wisps appear.
+        const u3         = Math.random(), u4 = Math.random();
+        const zl         = Math.sqrt(-2 * Math.log(u3 + 1e-9)) * Math.cos(2 * Math.PI * u4);
+        const streakMult = Math.max(0.3, Math.min(2.2, Math.exp(zl * 0.45)));
+        // Slow, random fade cycle: 4–14 s period.
+        const fadePhase  = Math.random() * Math.PI * 2;
+        const fadePeriod = (4000 + Math.random() * 10000);
+        this._particleData.push({
+          t: t0, speed: 1.0 / travSecs, corridorIdx: ci,
+          phase, lateralT, bandSpread, color, alpha, streakPx,
+          streakMult, fadePhase, fadePeriod,
+        });
+      }
+    }
+  }
+
+  /** Get interpolated pixel position at fractional spine index t in [0..1]. */
+  private _spinePixel(corr: WindCorridor, t: number): { x: number; y: number } {
+    const spine = corr.spine;
+    if (spine.length === 0) return { x: 0, y: 0 };
+    const raw = t * (spine.length - 1);
+    const lo  = Math.floor(raw);
+    const hi  = Math.min(lo + 1, spine.length - 1);
+    const fr  = raw - lo;
+    const a   = tilePx(spine[lo]!.q, spine[lo]!.r);
+    const b   = tilePx(spine[hi]!.q, spine[hi]!.r);
+    // Wrap-seam guard: adjacent spine hexes on opposite world edges produce a
+    // pixel delta hundreds of tiles wide.  Interpolating between them draws a
+    // line straight through the map centre.  Snap to the nearer endpoint so
+    // the pts gap-break in update() can detect and clip the seam instead.
+    const sdx = b.x - a.x, sdy = b.y - a.y;
+    if (sdx * sdx + sdy * sdy > (TILE_R * 4) * (TILE_R * 4)) {
+      return fr < 0.5 ? a : b;
+    }
+    return { x: a.x + sdx * fr, y: a.y + sdy * fr };
+  }
+
+  update(time: number, delta: number): void {
+    const dt      = delta / 1000;
+    const network = this.gsm.windNetwork;
+    const gfx     = this._streamGfx;
+    if (!gfx) return;
+
+    gfx.clear();
+
+    // Number of spine samples that make up the curved tail (excluding head).
+    const N_SEG = 14;
+
+    for (const p of this._particleData) {
+      p.t = (p.t + p.speed * dt) % 1;
+      const corr = network.corridors[p.corridorIdx];
+      if (!corr || corr.spine.length < 2) continue;
+
+      // Per-particle streak length with individual multiplier.
+      const effectiveStreak = p.streakPx * p.streakMult;
+      const spineApproxPx   = corr.spine.length * TILE_R * 1.5;
+      const tStep           = Math.min(effectiveStreak / spineApproxPx / N_SEG, 0.010);
+
+      // Slow fade-in/out: smooth sine, always positive [0..1].
+      const fadeAlpha = 0.5 + 0.5 * Math.sin(time / p.fadePeriod * Math.PI * 2 + p.fadePhase);
+      const drawAlpha = p.alpha * fadeAlpha;
+
+      // Lateral offset: static strip + slow turbulent drift
+      const drift  = Math.sin(time * SWIRL_FREQ + p.phase) * STREAM_DRIFT;
+      const offset = p.lateralT * p.bandSpread + drift;
+
+      // Sample N_SEG+1 world positions — CLAMPED to [0,1], never wrapping.
+      // This means a particle near t=0 has a shorter tail, which is fine and
+      // completely avoids the straight-line artefact at the seam.
+      // Adaptive tangent half-window: spans ≥ 2 hex-steps so the pixel delta
+      // between back/forward samples is always non-trivial.  Computed once per
+      // particle, outside the tail-sample loop.
+      const halfWin = Math.max(0.040, 2.0 / (corr.spine.length - 1));
+
+      const pts: Array<{ x: number; y: number }> = [];
+      for (let i = N_SEG; i >= 0; i--) {
+        const ts = Math.max(0, p.t - i * tStep);
+
+        const tsBk  = Math.max(0,   ts - halfWin);
+        const tsFw  = Math.min(1.0, ts + halfWin);
+        const sBk   = this._spinePixel(corr, tsBk);
+        const sFw   = this._spinePixel(corr, tsFw);
+        const dx = sFw.x - sBk.x;
+        const dy = sFw.y - sBk.y;
+        // Genuine world-wrap artifacts produce pixel deltas of 1000+ px
+        // (world diameter = ~1440 px).  Legitimate tangent windows are ≤ ~200 px.
+        // Using TILE_R * 30 = 360 px gives a safe gap between the two.
+        const dlRaw = Math.sqrt(dx * dx + dy * dy);
+        const isWrapStraddle = dlRaw > TILE_R * 30;
+        const dl = isWrapStraddle ? 1 : (dlRaw || 1);
+        const px = isWrapStraddle ? 0 : -dy / dl;
+        const py = isWrapStraddle ? 0 :  dx / dl;
+        const spos = this._spinePixel(corr, ts);
+        // Abort tail early if we crossed a world-wrap point (large pixel gap).
+        if (pts.length > 0) {
+          const prev = pts[pts.length - 1]!;
+          const gx = spos.x - prev.x, gy = spos.y - prev.y;
+          if (gx * gx + gy * gy > (TILE_R * 8) * (TILE_R * 8)) break;
+        }
+        pts.push({ x: spos.x + px * offset, y: spos.y + py * offset });
+
+        // Stop adding tail samples once we've hit the spine start.
+        if (ts === 0) break;
+      }
+      if (pts.length < 2) continue;
+
+      // Draw segments: quadratic alpha fade * per-particle fade envelope.
+      // At low zoom particles become brighter/thicker to stay visible.
+      const zT     = Phaser.Math.Clamp(
+        (this.currentZoom - MIN_ZOOM) / (INITIAL_ZOOM - MIN_ZOOM), 0, 1);
+      const pBoost = 1 + (1 - zT) * 1.5;   // up to 2.5× at min zoom
+      for (let si = 0; si < pts.length - 1; si++) {
+        const frac = si / (pts.length - 1);   // 0 = near tail, 1 = near head
+        const segA = Math.min(1, drawAlpha * pBoost * (frac * frac));
+        const w    = Math.min(2.0, (0.5 + frac * 1.0) * Math.min(pBoost, 1.6));
+        if (segA < 0.012) continue;
+        gfx.lineStyle(w, p.color, segA);
+        gfx.lineBetween(pts[si]!.x, pts[si]!.y, pts[si + 1]!.x, pts[si + 1]!.y);
+      }
+    }
+  }
+
+  // ── Cycle advance + junction logic ────────────────────────────────────────
+
+  /** Called when the player clicks "End Cycle". Advances city and checks for junction. */
+  private _onEndCycleTick(): void {
+    this.siteEvolution.runEvolutionPass(this.gsm.cycleCount);
+    this.heroSystem.advanceCycleStatuses();
+    this.tradewindSystem.advanceCityAlongCorridor();
+    this._buildFogOverlay();       // recentre fog around new city position
     this._discoverReachableHexes();
     this._buildGameTiles();
     this._updateLabelVisibility();
-    this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  --  Hex Map');
+    this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  —  Hex Map');
+
+    // Junction check happens AFTER movement — the choice is presented when
+    // the city has already arrived at the junction hex, not a turn before.
+    if (this.tradewindSystem.isAtJunction()) {
+      this._showJunctionModal();
+    }
+  }
+
+  /**
+   * Show a bottom panel listing corridors available at the upcoming junction.
+   * The player can switch to a different current or stay on the current one.
+   */
+  private _showJunctionModal(): void {
+    if (this.routeOverlay) return;
+
+    const result = this.tradewindSystem.getUpcomingJunction();
+    if (!result) return;
+
+    const { junction, options } = result;
+    const W = this.scale.width;
+    const H = this.scale.height;
+
+    this.routeOverlay = this.add.container(0, 0).setDepth(50);
+    const PANEL_H = Math.floor(H * 0.30);
+    const panelY  = H - PANEL_H;
+
+    // ── Backdrop ──────────────────────────────────────────────────────
+    const backdrop = this.add.graphics();
+    backdrop.fillStyle(0x020c1c, 0.94);
+    backdrop.fillRect(0, panelY, W, PANEL_H);
+    backdrop.lineStyle(1.5, 0x1a3a5a, 1.0);
+    backdrop.lineBetween(0, panelY, W, panelY);
+    this.routeOverlay.add(backdrop);
+
+    // ── Header ───────────────────────────────────────────────────────
+    this.routeOverlay.add(
+      this.add.text(W / 2, panelY + 10,
+        '◈  J U N C T I O N  —  choose your wind current  ◈', {
+          fontSize: '11px', color: '#3a5570', fontFamily: 'monospace',
+        }).setOrigin(0.5, 0),
+    );
+
+    // ── Build card list ────────────────────────────────────────────────
+    const activeCorrId  = this.gsm.currentCorridorId;
+    const activeCorridor = this.gsm.windNetwork.corridors.find(c => c.id === activeCorrId);
+    const allCards: Array<{ name: string; speed: number; color: number; corridorId: string | null }> = [];
+    if (activeCorridor) {
+      allCards.push({ name: activeCorridor.name, speed: activeCorridor.speed, color: 0xf7c948, corridorId: null });
+    }
+    for (const opt of options) {
+      allCards.push({ name: opt.corridor.name, speed: opt.corridor.speed, color: opt.corridor.color, corridorId: opt.corridor.id });
+    }
+
+    const cardW  = 220;
+    const cardH  = Math.floor(PANEL_H * 0.80);
+    const gap    = 14;
+    const totalW = allCards.length * (cardW + gap) - gap;
+    const startX = Math.max(16, (W - totalW) / 2);
+    const startY = panelY + 30;
+
+    for (let ci = 0; ci < allCards.length; ci++) {
+      const card   = allCards[ci]!;
+      const x      = startX + ci * (cardW + gap);
+      const isStay = card.corridorId === null;
+      const col    = card.color;
+
+      // Pre-lookup corridor object for hover highlight
+      const corrObj = isStay
+        ? activeCorridor
+        : this.gsm.windNetwork.corridors.find(c => c.id === card.corridorId);
+
+      const gcard = this.add.graphics();
+      const drawCard = (hov: boolean) => {
+        gcard.clear();
+        // Body fill
+        gcard.fillStyle(0x040c1c, hov ? 0.97 : 0.82);
+        gcard.fillRoundedRect(x, startY, cardW, cardH, 6);
+        // Colored left-edge stripe (4 px)
+        gcard.fillStyle(col, hov ? 1.0 : 0.65);
+        gcard.fillRoundedRect(x, startY, 4, cardH,
+          { tl: 6, tr: 0, br: 0, bl: 6 } as unknown as number);
+        // Border
+        gcard.lineStyle(hov ? 2 : 1.5, hov ? 0xffffff : col, hov ? 0.90 : 0.40);
+        gcard.strokeRoundedRect(x, startY, cardW, cardH, 6);
+        // "Stay" accent top bar
+        if (isStay && !hov) {
+          gcard.lineStyle(2, 0xf7c948, 0.60);
+          gcard.lineBetween(x + 4, startY + 1, x + cardW, startY + 1);
+        }
+      };
+      drawCard(false);
+      this.routeOverlay!.add(gcard);
+
+      // ── Card text labels ─────────────────────────────────────────────────
+      const tx = x + 14;  // left-pad past stripe
+
+      const badge = isStay ? 'STAY  ▼' : 'SWITCH  ▶';
+      const badgeCol = isStay ? '#776040' : '#336688';
+      const nameLabel = this.add.text(tx, startY + 12, card.name, {
+        fontSize: '14px', color: '#dde8f4', fontFamily: 'monospace', fontStyle: 'bold',
+      }).setOrigin(0, 0);
+      const sub = this.add.text(tx, startY + 30, badge, {
+        fontSize: '10px', color: badgeCol, fontFamily: 'monospace',
+      }).setOrigin(0, 0);
+
+      // Speed pips: ◆ = filled, ◇ = empty
+      const pips = ('◆'.repeat(card.speed) + '◇'.repeat(Math.max(0, 3 - card.speed)));
+      const speedWord = card.speed === 1 ? 'slow' : card.speed === 2 ? 'steady' : 'swift';
+      const colHex = '#' + col.toString(16).padStart(6, '0');
+      const speedLabel = this.add.text(tx, startY + 46, pips + '  ' + speedWord, {
+        fontSize: '11px', color: colHex, fontFamily: 'monospace',
+      }).setOrigin(0, 0);
+
+      for (const t of [nameLabel, sub, speedLabel]) this.routeOverlay!.add(t);
+
+      // ── Hit zone ────────────────────────────────────────────────────────
+      const hit = this.add.zone(x + cardW / 2, startY + cardH / 2, cardW, cardH)
+        .setInteractive({ useHandCursor: true });
+      this.routeOverlay!.add(hit);
+
+      hit.on('pointerover', () => {
+        drawCard(true);
+        if (corrObj) this._onCorridorHover(corrObj);
+      });
+      hit.on('pointerout', () => {
+        drawCard(false);
+        this._onCorridorOut();
+      });
+      hit.on('pointerdown', () => {
+        if (card.corridorId) {
+          this._applyCorridorSwitch(card.corridorId);
+        } else {
+          // Stay on current — close panel and restore UI
+          this.routeOverlay?.destroy(true);
+          this.routeOverlay = null;
+          this.endCycleBtn?.setVisible(true);
+          this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  —  Hex Map');
+        }
+      });
+    }
+
+    this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  —  Junction');
+    this.endCycleBtn?.setVisible(false);
+  }
+
+  /** Switch the city to a different wind corridor at the current junction. */
+  private _applyCorridorSwitch(corridorId: string): void {
+    this.tradewindSystem.switchCorridor(corridorId);
+
+    this.routeOverlay?.destroy(true);
+    this.routeOverlay = null;
+
+    // Rebuild network graphics to reflect new active corridor
+    this._renderWindNetwork();
+    // Rebuild particles — active corridor now different
+    this._buildParticles();
+    // Fog doesn't change (city position unchanged at switch)
+
+    this._discoverReachableHexes();
+    this._buildGameTiles();
+    this._updateLabelVisibility();
+    this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  —  Hex Map');
     this.endCycleBtn?.setVisible(true);
   }
 
+  /**
+   * Draw a distance-based dark veil between the terrain and the corridor
+   * network.  Tiles near the city stay bright; distant tiles fade to near-black,
+   * making the corridor colours much easier to read.
+   * Inserted at mapContainer index 1 (above terrain, below corridors).
+   */
+  private _buildFogOverlay(): void {
+    if (this._fogGfx) {
+      this._fogGfx.destroy();
+      this._fogGfx = null;
+    }
+    const { q: cq, r: cr } = this.gsm.cityHex;
+    const gfx = this.add.graphics();
+
+    for (let q = -WORLD_RADIUS; q <= WORLD_RADIUS; q++) {
+      for (let r = -WORLD_RADIUS; r <= WORLD_RADIUS; r++) {
+        if (Math.abs(-q - r) > WORLD_RADIUS) continue;
+        const d = hexDistance({ q, r }, { q: cq, r: cr });
+        if (d <= 6) continue;                                    // full brightness near city
+    const alpha = Math.min(0.45, (d - 6) / 32 * 0.45);     // ramp to 45% black at dist 38+
+        const { x, y } = tilePx(q, r);
+        gfx.fillStyle(0x000000, alpha);
+        gfx.fillPoints(tilePts(x, y), true);
+      }
+    }
+
+    // Always sits at z-index 1 — above terrain (0), below corridor network (2+)
+    this.mapContainer.addAt(gfx, 1);
+    this._fogGfx = gfx;
+  }
+
   private _renderTitleBar(W: number): void {
-    this.add.graphics().fillStyle(0x000000, 0.45).fillRect(0, 0, W, 50);
+    const bar = this.add.graphics();
+    bar.fillStyle(0x020810, 0.92);
+    bar.fillRect(0, 0, W, 50);
+    // Thin bottom accent line
+    bar.lineStyle(1, 0x1a3850, 1.0);
+    bar.lineBetween(0, 49, W, 49);
     this.titleText = this.add.text(W / 2, 25,
-      'Cycle ' + this.gsm.cycleCount + '  --  Hex Map', {
-        fontSize: '22px', color: '#ffffff', fontFamily: 'monospace',
+      'Cycle ' + this.gsm.cycleCount + '  —  Hex Map', {
+        fontSize: '19px', color: '#c0d0e0', fontFamily: 'monospace', fontStyle: 'bold',
       }).setOrigin(0.5);
   }
 
@@ -574,16 +1052,24 @@ export class WorldMapScene extends Phaser.Scene {
   }
 
   private _renderEndCycleButton(W: number, H: number): void {
-    this.endCycleBtn = this.add.text(W - 28, H - 58, '[ End Cycle ]', {
-      fontSize: '22px', color: '#ffaa33', fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(1, 0.5).setInteractive({ useHandCursor: true });
-    this.endCycleBtn.on('pointerover', () => this.endCycleBtn.setColor('#ffcc66'));
-    this.endCycleBtn.on('pointerout',  () => this.endCycleBtn.setColor('#ffaa33'));
-    this.endCycleBtn.on('pointerdown', () => {
-      this.siteEvolution.runEvolutionPass(this.gsm.cycleCount);
-      this.heroSystem.advanceCycleStatuses();
-      this._showRouteSelectionOverlay();
-    });
+    const bw = 148, bh = 32;
+    const bx = W - bw - 14;
+    const by = H - bh - 14;
+    const btnBg = this.add.graphics();
+    const drawBg = (hov: boolean) => {
+      btnBg.clear();
+      btnBg.fillStyle(hov ? 0x1a2800 : 0x080e1a, hov ? 0.95 : 0.85);
+      btnBg.fillRoundedRect(bx, by, bw, bh, 5);
+      btnBg.lineStyle(hov ? 2 : 1.5, hov ? 0xffdd55 : 0xffaa33, hov ? 1.0 : 0.70);
+      btnBg.strokeRoundedRect(bx, by, bw, bh, 5);
+    };
+    drawBg(false);
+    this.endCycleBtn = this.add.text(bx + bw / 2, by + bh / 2, 'End Cycle  ▶', {
+      fontSize: '15px', color: '#ffaa33', fontFamily: 'monospace', fontStyle: 'bold',
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    this.endCycleBtn.on('pointerover', () => { this.endCycleBtn.setColor('#ffdd66'); drawBg(true); });
+    this.endCycleBtn.on('pointerout',  () => { this.endCycleBtn.setColor('#ffaa33'); drawBg(false); });
+    this.endCycleBtn.on('pointerdown', () => this._onEndCycleTick());
   }
 
   private _openPartySelection(tile: HexTile): void {
