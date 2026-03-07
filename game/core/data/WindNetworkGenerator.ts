@@ -532,6 +532,9 @@ export function generateWindNetwork(worldRadius: number, seed: number): WindNetw
     if (tooClose) continue;
 
     const uniqueCids = [...new Set(cIds)];
+    // A valid junction requires at least two DISTINCT corridors — skip hexes
+    // where only one corridor appears (e.g. a self-intersecting spine).
+    if (uniqueCids.length < 2) continue;
     const spineIndices: Record<string, number> = {};
     for (const cId of uniqueCids) {
       const corr = corridors.find(c => c.id === cId);
