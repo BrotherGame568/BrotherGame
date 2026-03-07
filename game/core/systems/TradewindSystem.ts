@@ -10,7 +10,7 @@
  */
 
 import type { AxialCoord }       from '@data/HexTile';
-import { hexId, hexDistance }    from '@data/HexTile';
+import { hexId }                  from '@data/HexTile';
 import type { WindCorridor, WindJunction }    from '@data/WindNetwork';
 import type { ITradewindSystem } from './ITradewindSystem';
 import type { IGameStateManager } from './IGameStateManager';
@@ -26,20 +26,21 @@ export class TradewindSystem implements ITradewindSystem {
   }
 
   /**
-   * Returns the junction the city is currently sitting on (or within 1 hex of),
-   * or null if there is none.  Only checks the **current** position, not ahead.
+   * Returns the junction the city is currently sitting on (exact spine-index
+   * match), or null if there is none.  Only checks the **current** position.
    */
   private _junctionAtCurrentPosition(): WindJunction | null {
     const corr = this._activeCorridor();
     if (!corr) return null;
 
-    const idx      = this._gsm.currentSpineIndex;
-    const cityHex  = corr.spine[idx];
-    if (!cityHex) return null;
-
+    const idx     = this._gsm.currentSpineIndex;
     const network = this._gsm.windNetwork;
+
+    // Use the spineIndices map for an exact match — avoids triggering a
+    // junction from one hex away (which caused the city to teleport on switch).
     return network.junctions.find(j =>
-      hexDistance(j.hex, cityHex) <= 1 && j.corridorIds.includes(corr.id),
+      j.corridorIds.includes(corr.id) &&
+      j.spineIndices[corr.id] === idx,
     ) ?? null;
   }
 
@@ -49,9 +50,19 @@ export class TradewindSystem implements ITradewindSystem {
     const corr = this._activeCorridor();
     if (!corr) { this._gsm.advanceCycle(); return; }
 
-    const speed   = corr.speed;
-    const cur     = this._gsm.currentSpineIndex;
-    const nextIdx = Math.min(cur + speed, corr.spine.length - 1);
+    const speed = corr.speed;
+    const cur   = this._gsm.currentSpineIndex;
+    let nextIdx = Math.min(cur + speed, corr.spine.length - 1);
+
+    // Stop at the first junction hex encountered within this step range so
+    // that the city always lands exactly on junction hexes (not one step past).
+    const network = this._gsm.windNetwork;
+    for (const j of network.junctions) {
+      const jIdx = j.spineIndices[corr.id];
+      if (jIdx !== undefined && jIdx > cur && jIdx <= nextIdx) {
+        nextIdx = Math.min(nextIdx, jIdx);
+      }
+    }
 
     this._gsm.setCurrentCorridor(corr.id, nextIdx);
     this._gsm.setCityHex(corr.spine[nextIdx]!);
@@ -82,9 +93,11 @@ export class TradewindSystem implements ITradewindSystem {
         // Find the junction spine index for this corridor
         const jIdx = junction.spineIndices[cId] ?? 0;
 
-        // Determine which end of the corridor is "forward" from city perspective
-        // (simple heuristic: pick direction that moves away from city hub)
-        return [{ corridor: corr, spineIndex: jIdx, direction: 'forward' as const }];
+        // Wind flows from spine[0] → spine[end] — same ordering the particles use.
+        // A junction option is only "forward" if there are still hexes ahead of jIdx.
+        const direction: 'forward' | 'backward' =
+          jIdx < corr.spine.length - 1 ? 'forward' : 'backward';
+        return [{ corridor: corr, spineIndex: jIdx, direction }];
       });
 
     return { junction, options };
@@ -95,11 +108,13 @@ export class TradewindSystem implements ITradewindSystem {
     const corr    = network.corridors.find(c => c.id === corridorId);
     if (!corr) return;
 
-    // Find the junction that connects our current corridor and the target
-    const junction = network.junctions.find(j =>
-      j.corridorIds.includes(this._gsm.currentCorridorId) &&
-      j.corridorIds.includes(corridorId),
-    );
+    // Switch at the exact junction the city is currently occupying.
+    // Using the first corridor-pair match in the network can pick a completely
+    // different intersection when two currents cross more than once, which
+    // makes the city jump to that other corridor's endpoint/start node.
+    const junction = this._junctionAtCurrentPosition();
+    if (!junction || !junction.corridorIds.includes(corridorId)) return;
+
     const jIdx = (junction?.spineIndices[corridorId]) ?? 0;
 
     this._gsm.setCurrentCorridor(corridorId, jIdx);

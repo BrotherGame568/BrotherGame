@@ -58,6 +58,51 @@ If you need something from another domain that doesn't exist yet, **stop and ope
 
 ---
 
+## Asset Storage and Phaser Usage
+
+When working with visual assets, follow these rules:
+
+1. **Saved game assets live under `game/assets/` by category.**
+	- `game/assets/sprites/`
+	- `game/assets/animations/`
+	- `game/assets/backgrounds/`
+	- `game/assets/ui/`
+
+2. **Structured asset metadata is part of the source of truth.**
+	- Per-asset metadata: `game/assets/_meta/*.asset.json`
+	- Generated catalog: `game/assets/manifest.catalog.json`
+	- Generated markdown summary: `game/assets/MANIFEST.generated.md`
+
+3. **Use the standalone Asset Manager for ingestion and updates whenever possible.**
+	The tool in `tools/asset_pipeline/` is the supported workflow for:
+	- importing new assets
+	- generating spritesheets from video
+	- updating metadata
+	- editing existing assets without creating duplicates
+
+4. **Do not hardcode ad hoc asset paths in gameplay code.**
+	If an asset is managed by the tool, prefer the catalog/metadata naming and keep runtime asset keys stable.
+
+5. **Phaser should load runtime assets by web path, not filesystem path.**
+	Use paths relative to the served asset root, such as:
+	- `sprites/my_unit.webp`
+	- `animations/walk_cycle_spider.webp`
+	- `backgrounds/sky_ruins.webp`
+
+6. **In Phaser scenes, preload first, then create stable keys.**
+	Typical pattern:
+	- `this.load.image('city_bg', 'backgrounds/city_bg.webp')`
+	- `this.load.spritesheet('rootwalker', 'animations/rootwalker.webp', { frameWidth, frameHeight })`
+	- create animations once with stable keys like `rootwalker_walk`
+
+7. **For spritesheets, metadata matters.**
+	Origin, collision box, frame rate, columns, and rows belong in metadata/tooling and should stay aligned with Phaser runtime setup.
+
+8. **Video imports are stored as generated spritesheets, not original videos.**
+	If an existing video-derived asset is reopened, it should be treated as editing the generated spritesheet output.
+
+---
+
 ## File You Must Read
 
 Before working on any domain, read:

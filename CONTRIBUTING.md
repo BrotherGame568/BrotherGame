@@ -33,6 +33,24 @@ Run locally before pushing:
 npm run typecheck
 ```
 
+## Asset Manager
+
+The repo includes a standalone asset-management tool for importing, processing, and maintaining saved assets.
+
+- Location: [tools/asset_pipeline](tools/asset_pipeline)
+- Guide: [tools/asset_pipeline/README.md](tools/asset_pipeline/README.md)
+
+Common root-level commands:
+
+```bash
+npm run asset-manager:start   # recommended: start both together
+npm run asset-manager:server
+npm run asset-manager:dev
+npm run asset-manager:build
+```
+
+Use it when working on asset ingestion, metadata updates, spritesheets, video-derived sheets, or the saved asset library.
+
 ---
 
 ## Workflow Step by Step
