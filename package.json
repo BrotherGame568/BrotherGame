@@ -4,15 +4,20 @@
   "description": "Sky-city exploration and management game built with Phaser 3 + TypeScript",
   "private": true,
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "typecheck": "npx tsc --noEmit"
+    "dev": "npx vite",
+    "build": "npx vite build",
+    "preview": "npx vite preview",
+    "typecheck": "npx tsc --noEmit",
+    "asset-manager:dev": "npm --prefix tools/asset_pipeline run dev",
+    "asset-manager:server": "npm --prefix tools/asset_pipeline run server",
+    "asset-manager:build": "npm --prefix tools/asset_pipeline run build",
+    "asset-manager:start": "npx concurrently -n backend,ui -c cyan,magenta \"npm run asset-manager:server\" \"npm run asset-manager:dev\""
   },
   "dependencies": {
     "phaser": "^3.87.0"
   },
   "devDependencies": {
+    "concurrently": "^9.1.2",
     "typescript": "^5.7.0",
     "vite": "^6.2.0"
   }
