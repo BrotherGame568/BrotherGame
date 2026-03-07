@@ -103,7 +103,34 @@ export class MissionScene extends Phaser.Scene {
     this.audioService = data.audioService;
   }
 
+  preload(): void {
+    // RootWalker walk cycle — 6×6 spritesheet, 466×466 px per frame
+    // Path is relative to publicDir (game/assets/)
+    this.load.spritesheet('rootwalker',
+      'animations/RootWalker-Walk-cycle.webp',
+      { frameWidth: 466, frameHeight: 466 },
+    );
+  }
+
   create(): void {
+    // ── RootWalker animations ──────────────────────────────────
+    if (!this.anims.exists('rootwalker_walk')) {
+      this.anims.create({
+        key: 'rootwalker_walk',
+        frames: this.anims.generateFrameNumbers('rootwalker', { start: 0, end: 35 }),
+        frameRate: 12,
+        repeat: -1,
+      });
+    }
+    if (!this.anims.exists('rootwalker_idle')) {
+      this.anims.create({
+        key: 'rootwalker_idle',
+        frames: [{ key: 'rootwalker', frame: 0 }],
+        frameRate: 1,
+        repeat: -1,
+      });
+    }
+
     // Reset state
     this.resourcesGathered = {};
     this.missionComplete = false;

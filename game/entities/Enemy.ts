@@ -451,7 +451,7 @@ export class MediumEnemy extends Enemy {
 }
 
 // ─────────────────────────────────────────────────────────
-// Large Enemy — slow brute, ranged attack
+// Large Enemy — RootWalker; slow brute, ranged attack
 // ─────────────────────────────────────────────────────────
 export class LargeEnemy extends Enemy {
   constructor(
@@ -460,13 +460,14 @@ export class LargeEnemy extends Enemy {
     getGroundY: (worldX: number) => number,
   ) {
     super(scene, config, getGroundY, {
-      textureKey: 'enemy_large',
+      // 'rootwalker' spritesheet must be loaded in the host scene's preload()
+      textureKey: 'rootwalker',
       maxHp:      12,
       moveSpeed:  35,
-      spriteW:    62,
-      spriteH:    78,
-      bodyW:      48,
-      bodyH:      70,
+      spriteW:    150,
+      spriteH:    400,
+      bodyW:       90,
+      bodyH:      110,
       attackType:        'ranged',
       detectionRange:    480,
       telegraphDuration: 950,
@@ -474,33 +475,30 @@ export class LargeEnemy extends Enemy {
       attackCooldown:    3200,
       attackDamage:      2,
     });
+
+    // origin stays (0.5, 1) — base class terrain-follow relies on it.
+    // Display as a 150×150 square.
+    this.sprite.setDisplaySize(150, 150);
+    // To raise/lower the visual relative to groundY, adjust spriteH in the stats
+    // above (NOT here). After the terrain snap, sprite.y = groundY + displayH - spriteH.
+    // spriteH = 150 → display bottom sits exactly at groundY (roots on the ground).
+    // spriteH = 170 → display bottom sits 20 px above groundY (lifts the character up).
+
+    // Start on idle immediately
+    this.sprite.play('rootwalker_idle');
   }
 
-  protected _drawSprite(gfx: Phaser.GameObjects.Graphics, cx: number, bottom: number): void {
-    // Legs (stubby)
-    gfx.fillStyle(0x771111, 1);
-    gfx.fillRect(cx - 16, bottom - 14, 12, 14);
-    gfx.fillRect(cx + 4,  bottom - 14, 12, 14);
-    // Body (massive)
-    gfx.fillStyle(0xaa2211, 1);
-    gfx.fillRoundedRect(cx - 22, bottom - 54, 44, 42, 6);
-    // Pauldrons
-    gfx.fillStyle(0x881100, 1);
-    gfx.fillRoundedRect(cx - 27, bottom - 52, 10, 16, 3);
-    gfx.fillRoundedRect(cx + 17, bottom - 52, 10, 16, 3);
-    // Head (large, menacing)
-    gfx.fillStyle(0xcc3322, 1);
-    gfx.fillRoundedRect(cx - 16, bottom - 72, 32, 22, 6);
-    // Glowing eyes
-    gfx.fillStyle(0xff8800, 1);
-    gfx.fillCircle(cx - 6, bottom - 62, 4);
-    gfx.fillCircle(cx + 6, bottom - 62, 4);
-    gfx.fillStyle(0xffdd00, 1);
-    gfx.fillCircle(cx - 6, bottom - 62, 2);
-    gfx.fillCircle(cx + 6, bottom - 62, 2);
-    // Outline
-    gfx.lineStyle(2, 0x330000, 0.8);
-    gfx.strokeRoundedRect(cx - 22, bottom - 54, 44, 42, 6);
-    gfx.strokeRoundedRect(cx - 16, bottom - 72, 32, 22, 6);
+  /** No-op: the sprite sheet replaces the procedural placeholder. */
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  protected _drawSprite(_gfx: Phaser.GameObjects.Graphics, _cx: number, _bottom: number): void {}
+
+  override update(heroX: number, heroY: number): void {
+    super.update(heroX, heroY);
+    const velX = this.sprite.body!.velocity.x;
+    if (velX !== 0) {
+      this.sprite.play('rootwalker_walk', true);
+    } else {
+      this.sprite.play('rootwalker_idle', true);
+    }
   }
 }

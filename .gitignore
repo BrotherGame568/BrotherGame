@@ -83,6 +83,10 @@ package-lock.json
 /out/
 *.log
 
+# ----- Source / unoptimised assets (committed as .webp) -----
+# Keep the source PNG locally for re-export but don't bloat the repo
+game/assets/animations/RootWalker-Walk-cycle.png
+
 # ----- AI agent working files -------------------------------
 .agent_context/
 *.agent.tmp
