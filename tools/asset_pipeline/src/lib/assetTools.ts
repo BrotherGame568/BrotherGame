@@ -1,4 +1,4 @@
-import type { AssetCategory, AssetDraft, AssetMetadataDocument, OutputFormat, SourceInfo } from '../types';
+import type { AssetCategory, AssetDraft, AssetMetadataDocument, OutputFormat, PersistedAssetRecord, SourceInfo } from '../types';
 
 const CATEGORY_PATHS: Record<AssetCategory, string> = {
   backgrounds: 'game/assets/backgrounds',
@@ -165,4 +165,35 @@ export function bytesToHuman(bytes: number): string {
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const value = bytes / 1024 ** index;
   return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+export function buildDraftFromPersistedAsset(asset: PersistedAssetRecord): AssetDraft {
+  const reopenedMode = asset.mode === 'video' ? 'spritesheet' : asset.mode;
+  const defaultDraft = createDefaultDraft();
+
+  return {
+    assetId: asset.id,
+    displayName: asset.name,
+    category: asset.category,
+    mode: reopenedMode,
+    outputFormat: asset.outputFormat,
+    maintainAspectRatio: asset.maintainAspectRatio,
+    resizeFit: asset.resizeFit ?? 'contain',
+    exportWidth: asset.exportSize.width,
+    exportHeight: asset.exportSize.height,
+    displayWidth: asset.displaySize.width,
+    displayHeight: asset.displaySize.height,
+    removeBackground: asset.optimization.backgroundRemovalRequested,
+    enableOptimization: asset.optimization.enabled,
+    animationType: asset.spritesheet?.animationType ?? defaultDraft.animationType,
+    columns: asset.spritesheet?.columns ?? 1,
+    rows: asset.spritesheet?.rows ?? 1,
+    frameRate: asset.spritesheet?.frameRate ?? asset.video?.requestedFrameRate ?? defaultDraft.frameRate,
+    origin: asset.spritesheet?.origin ?? defaultDraft.origin,
+    collisionBox: asset.spritesheet?.collisionBox ?? defaultDraft.collisionBox,
+    notes: asset.notes,
+    trimStartSeconds: asset.video?.trimStartSeconds ?? 0,
+    trimEndSeconds: asset.video?.trimEndSeconds ?? 0,
+    videoSampling: asset.video?.sampling ?? 'spread',
+  };
 }

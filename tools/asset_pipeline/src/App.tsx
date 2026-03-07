@@ -1,20 +1,27 @@
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Archive,
+  ArrowLeft,
   Boxes,
   ChevronDown,
   Clapperboard,
   CircleCheckBig,
   Download,
   Film,
+  FilePenLine,
   ImagePlus,
+  Plus,
+  RefreshCw,
   ScanLine,
   Sparkles,
+  Trash2,
   WandSparkles,
 } from 'lucide-react';
-import type { AssetCategory, AssetDraft, AnimationType, OutputFormat, ResizeFitMode, SourceInfo, VideoSamplingMode } from './types';
+import type { AssetCategory, AssetDraft, AnimationType, OutputFormat, PersistedAssetRecord, ResizeFitMode, SourceInfo, VideoSamplingMode } from './types';
 import {
   buildAssetMetadata,
+  buildDraftFromPersistedAsset,
   buildManifestRow,
   bytesToHuman,
   createDefaultDraft,
@@ -25,7 +32,16 @@ import {
   inferCategoryFromMode,
   sanitizeAssetId,
 } from './lib/assetTools';
-import { fetchBackendHealth, processAssetInWorkspace, type SavedAssetResult } from './lib/apiClient';
+import {
+  deleteWorkspaceAsset,
+  fetchAssetCatalog,
+  fetchBackendHealth,
+  fetchWorkspaceAssetFile,
+  processAssetInWorkspace,
+  updateAssetArchiveStatus,
+  updateAssetMetadataInWorkspace,
+  type SavedAssetResult,
+} from './lib/apiClient';
 
 const CATEGORY_OPTIONS: AssetCategory[] = ['backgrounds', 'sprites', 'ui', 'animations'];
 const OUTPUT_FORMATS: OutputFormat[] = ['webp', 'png', 'jpg', 'avif'];
@@ -43,9 +59,18 @@ export default function App() {
   const [isPreparingVideoPreview, setIsPreparingVideoPreview] = useState(false);
   const [status, setStatus] = useState<string>('Load an image or video to begin.');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [appView, setAppView] = useState<'library' | 'editor'>('library');
+  const [catalogAssets, setCatalogAssets] = useState<PersistedAssetRecord[]>([]);
+  const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [assetSearch, setAssetSearch] = useState('');
+  const [showArchivedAssets, setShowArchivedAssets] = useState(false);
+  const [librarySelectedAssetId, setLibrarySelectedAssetId] = useState<string | null>(null);
   const [backendReady, setBackendReady] = useState(false);
   const [ffmpegAvailable, setFfmpegAvailable] = useState(false);
   const [savedAsset, setSavedAsset] = useState<SavedAssetResult | null>(null);
+  const [currentAssetId, setCurrentAssetId] = useState<string | null>(null);
+  const pendingLoadedDraftRef = useRef<AssetDraft | null>(null);
   const [openSections, setOpenSections] = useState({
     import: true,
     metadata: false,
@@ -56,6 +81,25 @@ export default function App() {
   const hasSelectedSource = selectedFile !== null;
   const canExportRaster = hasSelectedSource && draft.mode !== 'video';
   const canProcessToWorkspace = hasSelectedSource && (draft.mode !== 'video' || ffmpegAvailable);
+
+  async function refreshCatalog(): Promise<void> {
+    if (!backendReady) {
+      setCatalogAssets([]);
+      return;
+    }
+
+    setIsLoadingCatalog(true);
+    try {
+      const catalog = await fetchAssetCatalog();
+      setCatalogAssets(catalog.assets);
+      setCatalogError(null);
+    } catch (error) {
+      setCatalogAssets([]);
+      setCatalogError(error instanceof Error ? error.message : 'Unable to load the asset catalog.');
+    } finally {
+      setIsLoadingCatalog(false);
+    }
+  }
 
   useEffect(() => {
     fetchBackendHealth()
@@ -84,6 +128,10 @@ export default function App() {
   }, [saveState]);
 
   useEffect(() => {
+    void refreshCatalog();
+  }, [backendReady]);
+
+  useEffect(() => {
     if (!selectedFile) {
       setSourceInfo(null);
       setPreviewImage(null);
@@ -101,7 +149,13 @@ export default function App() {
     const applySource = (info: SourceInfo): void => {
       if (revoked) return;
       setSourceInfo(info);
+      const pendingLoadedDraft = pendingLoadedDraftRef.current;
       setDraft((current) => {
+        if (pendingLoadedDraft) {
+          pendingLoadedDraftRef.current = null;
+          return pendingLoadedDraft;
+        }
+
         const nextMode = info.kind === 'video' ? 'video' : current.mode;
         const inferredCategory = info.kind === 'video' ? 'animations' : inferCategoryFromMode(nextMode);
         const displayWidth = current.displayWidth > 0 ? current.displayWidth : Math.min(info.width, 220);
@@ -133,7 +187,13 @@ export default function App() {
           },
         };
       });
-      setStatus(`${selectedFile.name} loaded.`);
+      setStatus(
+        pendingLoadedDraft
+          ? pendingLoadedDraft.mode === 'spritesheet' && info.kind === 'image' && selectedFile.type.startsWith('image/')
+            ? `${pendingLoadedDraft.displayName} loaded for editing.`
+            : `${selectedFile.name} loaded.`
+          : `${selectedFile.name} loaded.`,
+      );
     };
 
     if (selectedFile.type.startsWith('image/')) {
@@ -242,6 +302,43 @@ export default function App() {
 
   const metadata = useMemo(() => buildAssetMetadata(draft, sourceInfo), [draft, sourceInfo]);
   const manifestRow = useMemo(() => buildManifestRow(draft), [draft]);
+  const filteredCatalogAssets = useMemo(() => {
+    const query = assetSearch.trim().toLowerCase();
+    return catalogAssets.filter((asset) => {
+      if (!showArchivedAssets && asset.status === 'archived') {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return asset.id.toLowerCase().includes(query)
+        || asset.name.toLowerCase().includes(query)
+        || asset.category.toLowerCase().includes(query)
+        || asset.outputRelativePath.toLowerCase().includes(query);
+    });
+  }, [catalogAssets, assetSearch, showArchivedAssets]);
+  const selectedCatalogAsset = useMemo(
+    () => catalogAssets.find((asset) => asset.id === currentAssetId) ?? null,
+    [catalogAssets, currentAssetId],
+  );
+  const selectedLibraryAsset = useMemo(
+    () => filteredCatalogAssets.find((asset) => asset.id === librarySelectedAssetId) ?? filteredCatalogAssets[0] ?? null,
+    [filteredCatalogAssets, librarySelectedAssetId],
+  );
+
+  useEffect(() => {
+    if (filteredCatalogAssets.length === 0) {
+      setLibrarySelectedAssetId(null);
+      return;
+    }
+
+    const firstAsset = filteredCatalogAssets[0];
+    if (firstAsset && (!librarySelectedAssetId || !filteredCatalogAssets.some((asset) => asset.id === librarySelectedAssetId))) {
+      setLibrarySelectedAssetId(firstAsset.id);
+    }
+  }, [filteredCatalogAssets, librarySelectedAssetId]);
   const outputPath = useMemo(
     () => `${getCategoryOutputPath(draft.category)}/${draft.assetId}.${draft.outputFormat}`,
     [draft.category, draft.assetId, draft.outputFormat],
@@ -329,7 +426,7 @@ export default function App() {
     }
 
     if (!backendReady) {
-      setStatus('Start the local asset backend with `npm run server` in tools/asset_pipeline.');
+      setStatus('Start the asset manager with `npm run asset-manager:start` from the repo root.');
       setSaveState('error');
       return;
     }
@@ -337,8 +434,10 @@ export default function App() {
     try {
       setSaveState('saving');
       setStatus('Processing asset in workspace...');
-      const result = await processAssetInWorkspace(selectedFile, draft);
+      const result = await processAssetInWorkspace(selectedFile, draft, currentAssetId);
       setSavedAsset(result);
+      setCurrentAssetId(draft.assetId);
+      await refreshCatalog();
       setSaveState('success');
       setStatus(`Saved to ${result.outputRelativePath}`);
     } catch (error) {
@@ -361,6 +460,7 @@ export default function App() {
     setSelectedFile(file);
     setSavedAsset(null);
     setSaveState('idle');
+    setCurrentAssetId(null);
     if (!file) {
       setStatus('Selection cleared.');
       return;
@@ -375,6 +475,103 @@ export default function App() {
     }
   }
 
+  async function handleLoadExistingAsset(asset: PersistedAssetRecord): Promise<void> {
+    try {
+      setStatus(`Loading ${asset.id} from the workspace...`);
+      setSaveState('idle');
+      setSavedAsset(null);
+      const blob = await fetchWorkspaceAssetFile(asset.outputRelativePath);
+      const fileName = asset.outputRelativePath.split('/').pop() ?? `${asset.id}.${asset.outputFormat}`;
+      const file = new File([blob], fileName, { type: blob.type || inferMimeTypeFromFormat(asset.outputFormat) });
+      pendingLoadedDraftRef.current = buildDraftFromPersistedAsset(asset);
+      setCurrentAssetId(asset.id);
+      setSelectedFile(file);
+      setAppView('editor');
+      setStatus(
+        asset.mode === 'video'
+          ? `Loaded ${asset.id} from its generated spritesheet output. Original video clips are not stored.`
+          : `Loaded ${asset.id} for editing.`,
+      );
+    } catch (error) {
+      setSaveState('error');
+      setStatus(error instanceof Error ? error.message : 'Unable to load the selected asset.');
+    }
+  }
+
+  function handleStartNewAsset(): void {
+    setAppView('editor');
+    setDraft(createDefaultDraft());
+    setSelectedFile(null);
+    setSourceInfo(null);
+    setPreviewImage(null);
+    setVideoPreviewSheet(null);
+    setVideoPreviewInfo(null);
+    setSavedAsset(null);
+    setCurrentAssetId(null);
+    setSaveState('idle');
+    setStatus('Ready to create a new asset.');
+  }
+
+  function handleShowLibrary(): void {
+    setAppView('library');
+    void refreshCatalog();
+  }
+
+  async function handleMetadataOnlySave(): Promise<void> {
+    if (!currentAssetId) {
+      setSaveState('error');
+      setStatus('Load an existing asset first to save metadata without reprocessing.');
+      return;
+    }
+
+    try {
+      setSaveState('saving');
+      setStatus('Saving metadata only...');
+      const result = await updateAssetMetadataInWorkspace(draft, currentAssetId);
+      setSavedAsset(result);
+      setCurrentAssetId(draft.assetId);
+      await refreshCatalog();
+      setSaveState('success');
+      setStatus(`Metadata updated for ${draft.assetId}.`);
+    } catch (error) {
+      setSaveState('error');
+      setStatus(error instanceof Error ? error.message : 'Metadata update failed.');
+    }
+  }
+
+  async function handleArchiveToggle(asset: PersistedAssetRecord): Promise<void> {
+    try {
+      setStatus(`${asset.status === 'archived' ? 'Restoring' : 'Archiving'} ${asset.id}...`);
+      await updateAssetArchiveStatus(asset.id, asset.status !== 'archived');
+      await refreshCatalog();
+      setStatus(`${asset.status === 'archived' ? 'Restored' : 'Archived'} ${asset.id}.`);
+    } catch (error) {
+      setSaveState('error');
+      setStatus(error instanceof Error ? error.message : 'Unable to update asset status.');
+    }
+  }
+
+  async function handleDeleteAsset(asset: PersistedAssetRecord): Promise<void> {
+    const confirmed = window.confirm(`Delete ${asset.name} and remove it from the asset catalog?`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setStatus(`Deleting ${asset.id}...`);
+      await deleteWorkspaceAsset(asset.id);
+      if (currentAssetId === asset.id) {
+        setCurrentAssetId(null);
+        setSelectedFile(null);
+      }
+      await refreshCatalog();
+      setStatus(`${asset.id} deleted.`);
+    } catch (error) {
+      setSaveState('error');
+      setStatus(error instanceof Error ? error.message : 'Unable to delete asset.');
+    }
+  }
+
   return (
     <div className="shell">
       <header className="hero">
@@ -386,8 +583,148 @@ export default function App() {
             into the game workspace.
           </p>
         </div>
+        <div className="hero-actions">
+          {appView === 'library' ? (
+            <>
+              {(hasSelectedSource || currentAssetId) ? (
+                <button type="button" className="secondary-button" onClick={() => setAppView('editor')}>
+                  <FilePenLine size={16} />
+                  Return to editor
+                </button>
+              ) : null}
+              <button type="button" className="primary-button" onClick={handleStartNewAsset}>
+                <Plus size={16} />
+                Add new asset
+              </button>
+            </>
+          ) : (
+            <button type="button" className="secondary-button" onClick={handleShowLibrary}>
+              <ArrowLeft size={16} />
+              Back to library
+            </button>
+          )}
+        </div>
       </header>
 
+      {appView === 'library' ? (
+        <main className="library-grid">
+          <section className="panel stack">
+            <PanelHeader icon={<Boxes size={18} />} title="Asset library" subtitle="Browse, search, edit, archive, and delete saved workspace assets." />
+
+            <div className="asset-browser">
+              <div className="asset-browser-header">
+                <div>
+                  <strong>Existing assets</strong>
+                  <p>Load a previously saved asset back into the editor.</p>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-button compact-button"
+                  onClick={() => void refreshCatalog()}
+                  disabled={!backendReady || isLoadingCatalog}
+                >
+                  <RefreshCw size={14} />
+                  {isLoadingCatalog ? 'Refreshing…' : 'Refresh'}
+                </button>
+              </div>
+
+              <label className="field full-span">
+                <span>Search saved assets</span>
+                <input value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} placeholder="Search by ID, name, category, or path" />
+              </label>
+
+              <ToggleField
+                label="Show archived assets"
+                checked={showArchivedAssets}
+                onChange={setShowArchivedAssets}
+                helper="Archived assets stay in the catalog until deleted."
+              />
+
+              {!backendReady ? (
+                <p className="helper-text">Start the asset manager with `npm run asset-manager:start` from the repo root to browse saved assets.</p>
+              ) : catalogError ? (
+                <p className="helper-text">{catalogError} Try refreshing after restarting the asset backend.</p>
+              ) : filteredCatalogAssets.length === 0 ? (
+                <p className="helper-text">No saved assets match the current search.</p>
+              ) : (
+                <div className="asset-gallery-grid">
+                  {filteredCatalogAssets.map((asset) => (
+                    <button
+                      key={asset.id}
+                      type="button"
+                      className={`asset-gallery-card ${asset.status === 'archived' ? 'archived' : ''} ${selectedLibraryAsset?.id === asset.id ? 'selected' : ''}`}
+                      onClick={() => setLibrarySelectedAssetId(asset.id)}
+                    >
+                      <img
+                        className="asset-gallery-thumb"
+                        src={`/api/asset-file?path=${encodeURIComponent(asset.outputRelativePath)}`}
+                        alt={asset.name}
+                        loading="lazy"
+                      />
+                      <div className="asset-gallery-copy">
+                        <strong>{asset.name}</strong>
+                        <span>{asset.category} • {asset.mode === 'video' ? 'video sheet' : asset.mode}</span>
+                        <small>{asset.id}</small>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="panel stack">
+            <PanelHeader icon={<Sparkles size={18} />} title="Selection" subtitle="Details and actions for the selected asset." />
+            <div className="summary-grid library-summary-grid">
+              <InfoTile label="Visible assets" value={`${filteredCatalogAssets.length}`} />
+              <InfoTile label="All assets" value={`${catalogAssets.length}`} />
+              <InfoTile label="Archived" value={`${catalogAssets.filter((asset) => asset.status === 'archived').length}`} />
+              <InfoTile label="Backend" value={backendReady ? 'online' : 'offline'} />
+            </div>
+            {selectedLibraryAsset ? (
+              <>
+                <div className="library-selected-card">
+                  <img
+                    className="library-selected-thumb"
+                    src={`/api/asset-file?path=${encodeURIComponent(selectedLibraryAsset.outputRelativePath)}`}
+                    alt={selectedLibraryAsset.name}
+                  />
+                  <strong>{selectedLibraryAsset.name}</strong>
+                  <span>{selectedLibraryAsset.id}</span>
+                  <small>{selectedLibraryAsset.outputRelativePath}</small>
+                </div>
+                <div className="panel-tip compact-tip">
+                  <strong>Selected asset</strong>
+                  <p>
+                    {selectedLibraryAsset.category} • {selectedLibraryAsset.mode === 'video' ? 'Reopens as spritesheet editor' : selectedLibraryAsset.mode}
+                    {selectedLibraryAsset.status === 'archived' ? ' • Archived' : ''}
+                  </p>
+                </div>
+                <div className="asset-browser-actions library-actions">
+                  <button type="button" className="primary-button" onClick={() => void handleLoadExistingAsset(selectedLibraryAsset)}>
+                    <FilePenLine size={16} />
+                    Edit selected
+                  </button>
+                  <button type="button" className="secondary-button" onClick={() => void handleArchiveToggle(selectedLibraryAsset)}>
+                    <Archive size={16} />
+                    {selectedLibraryAsset.status === 'archived' ? 'Restore' : 'Archive'}
+                  </button>
+                  <button type="button" className="secondary-button destructive-button" onClick={() => void handleDeleteAsset(selectedLibraryAsset)}>
+                    <Trash2 size={16} />
+                    Delete
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="panel-tip compact-tip">
+                <strong>No asset selected</strong>
+                <p>Select a thumbnail from the gallery to inspect it and open actions.</p>
+              </div>
+            )}
+          </section>
+        </main>
+      ) : (
+        <>
       <section className="workflow-strip">
         {workflowSteps.map((step, index) => (
           <div key={step.label} className={`workflow-step ${step.complete ? 'complete' : ''}`}>
@@ -604,6 +941,15 @@ export default function App() {
             <InfoTile label="Animation" value={draft.mode === 'image' ? 'N/A' : `${draft.animationType} @ ${draft.frameRate} fps`} />
           </div>
 
+          {selectedCatalogAsset ? (
+            <div className="panel-tip compact-tip">
+              <strong>Editing existing asset</strong>
+              <p>
+                {selectedCatalogAsset.name} is loaded from {selectedCatalogAsset.outputRelativePath}. Use metadata-only save for metadata, naming, layout, and catalog changes without reprocessing the source.
+              </p>
+            </div>
+          ) : null}
+
           {saveState !== 'idle' ? (
             <div className={`save-feedback save-feedback-${saveState}`}>
               {saveState === 'success' ? <CircleCheckBig size={18} /> : <WandSparkles size={18} />}
@@ -635,6 +981,10 @@ export default function App() {
                   ? 'Save spritesheet to workspace'
                   : 'Save to workspace'}
             </button>
+            <button className="secondary-button" onClick={handleMetadataOnlySave} disabled={!selectedCatalogAsset || saveState === 'saving'}>
+              <FilePenLine size={16} />
+              Save metadata only
+            </button>
           </div>
 
           <div className="panel-tip compact-tip">
@@ -643,7 +993,7 @@ export default function App() {
               {!hasSelectedSource
                 ? 'Import a source file to unlock processing and downloads.'
                 : !backendReady
-                  ? 'Start the backend with npm run asset-manager:server, then save directly into the repo.'
+                  ? 'Start the asset manager with npm run asset-manager:start, then save directly into the repo.'
                   : draft.mode === 'video' && !ffmpegAvailable
                     ? 'FFmpeg is unavailable, so video processing is disabled.'
                     : 'Preview looks good — use Save to workspace.'}
@@ -684,6 +1034,8 @@ export default function App() {
           ) : null}
         </section>
       </main>
+      </>
+      )}
 
       <footer className="status-bar">
         <span>{status}</span>
@@ -1195,6 +1547,20 @@ function safeAspectRatio(width: number, height: number): number {
   const safeWidth = Math.max(1, width);
   const safeHeight = Math.max(1, height);
   return safeHeight / safeWidth;
+}
+
+function inferMimeTypeFromFormat(format: OutputFormat): string {
+  switch (format) {
+    case 'png':
+      return 'image/png';
+    case 'jpg':
+      return 'image/jpeg';
+    case 'avif':
+      return 'image/avif';
+    case 'webp':
+    default:
+      return 'image/webp';
+  }
 }
 
 async function createSpritesheetPreviewFromVideo(

@@ -85,3 +85,23 @@ export interface AssetMetadataDocument {
   generatedAt: string;
   notes: string;
 }
+
+export interface PersistedAssetRecord extends AssetMetadataDocument {
+  outputRelativePath: string;
+  metadataRelativePath: string;
+  outputAbsolutePath?: string;
+  metadataAbsolutePath?: string;
+  status?: 'active' | 'archived';
+  archivedAt?: string;
+  optimization: AssetMetadataDocument['optimization'] & {
+    notes?: string[];
+  };
+  spritesheet?: NonNullable<AssetMetadataDocument['spritesheet']> & {
+    frameCount?: number;
+  };
+}
+
+export interface AssetCatalogDocument {
+  generatedAt: string;
+  assets: PersistedAssetRecord[];
+}

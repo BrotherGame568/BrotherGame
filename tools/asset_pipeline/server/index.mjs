@@ -33,6 +33,32 @@ app.get('/api/health', async (_req, res) => {
   res.json({ ok: true, ffmpegAvailable, repoRoot, assetsRoot });
 });
 
+app.get('/api/catalog', async (_req, res) => {
+  const catalog = await readCatalog();
+  res.json(catalog);
+});
+
+app.get('/api/asset-file', async (req, res) => {
+  const relativePath = typeof req.query.path === 'string' ? req.query.path : '';
+  if (!relativePath) {
+    res.status(400).json({ error: 'Missing asset path.' });
+    return;
+  }
+
+  const absolutePath = path.resolve(repoRoot, relativePath);
+  if (!absolutePath.startsWith(repoRoot)) {
+    res.status(400).json({ error: 'Invalid asset path.' });
+    return;
+  }
+
+  try {
+    await fs.access(absolutePath);
+    res.sendFile(absolutePath);
+  } catch {
+    res.status(404).json({ error: 'Asset file not found.' });
+  }
+});
+
 app.post('/api/process', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -41,30 +67,121 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
     }
 
     const draft = parseDraft(req.body.draft);
+    const currentAssetId = typeof req.body.currentAssetId === 'string' ? req.body.currentAssetId : null;
+    const existingAsset = currentAssetId ? await findCatalogAsset(currentAssetId) : null;
+    if (currentAssetId && !existingAsset) {
+      res.status(404).json({ error: 'The asset being edited no longer exists in the catalog. Reload it from the library and try again.' });
+      return;
+    }
     const result = draft.mode === 'video'
       ? await processVideoAsset(req.file, draft)
       : await processRasterAsset(req.file, draft);
 
-    const metadata = buildPersistedMetadata(draft, req.file, result);
-    await persistAssetArtifacts(metadata, result);
+    const metadata = buildPersistedMetadata(draft, req.file, result, existingAsset);
+    await persistAssetArtifacts(metadata, result, existingAsset, currentAssetId);
 
     res.json({
       ok: true,
-      savedAsset: {
-        outputRelativePath: metadata.outputRelativePath,
-        metadataRelativePath: metadata.metadataRelativePath,
-        manifestRelativePath: path.relative(repoRoot, generatedManifestPath).replace(/\\/g, '/'),
-        sourceBytes: req.file.size,
-        outputBytes: result.outputBytes,
-        notes: result.notes,
-        frameCount: result.frameCount,
-      },
+      savedAsset: buildSavedAssetResponse(metadata, req.file.size, result.outputBytes, result.notes, result.frameCount),
     });
   } catch (error) {
     console.error(error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Asset processing failed.',
     });
+  }
+});
+
+app.post('/api/metadata', async (req, res) => {
+  try {
+    const draft = req.body?.draft;
+    const currentAssetId = req.body?.currentAssetId;
+    if (!draft || !currentAssetId) {
+      res.status(400).json({ error: 'Missing metadata update payload.' });
+      return;
+    }
+
+    const catalog = await readCatalog();
+    const existing = catalog.assets.find((asset) => asset.id === currentAssetId);
+    if (!existing) {
+      res.status(404).json({ error: 'Saved asset not found.' });
+      return;
+    }
+
+    if (draft.outputFormat !== existing.outputFormat) {
+      res.status(400).json({ error: 'Metadata-only save cannot change the output format. Reprocess the asset instead.' });
+      return;
+    }
+
+    const updated = buildMetadataOnlyUpdate(existing, draft);
+    await relocateAssetFiles(existing, updated);
+    await fs.mkdir(path.dirname(updated.metadataAbsolutePath), { recursive: true });
+    await fs.writeFile(updated.metadataAbsolutePath, JSON.stringify(updated, null, 2));
+    await updateCatalogAsset(currentAssetId, updated);
+
+    res.json({
+      ok: true,
+      savedAsset: buildSavedAssetResponse(updated, existing.source?.sizeBytes ?? 0, 0, updated.optimization?.notes ?? [], updated.spritesheet?.frameCount ?? 1),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Metadata update failed.' });
+  }
+});
+
+app.post('/api/asset-status', async (req, res) => {
+  try {
+    const assetId = req.body?.assetId;
+    const shouldArchive = !!req.body?.archived;
+    if (!assetId) {
+      res.status(400).json({ error: 'Missing asset identifier.' });
+      return;
+    }
+
+    const catalog = await readCatalog();
+    const existing = catalog.assets.find((asset) => asset.id === assetId);
+    if (!existing) {
+      res.status(404).json({ error: 'Saved asset not found.' });
+      return;
+    }
+
+    const updated = {
+      ...existing,
+      status: shouldArchive ? 'archived' : 'active',
+      archivedAt: shouldArchive ? new Date().toISOString() : undefined,
+    };
+    await updateCatalogAsset(assetId, updated);
+    res.json({ ok: true, asset: updated });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Asset status update failed.' });
+  }
+});
+
+app.delete('/api/asset', async (req, res) => {
+  try {
+    const assetId = typeof req.query.assetId === 'string' ? req.query.assetId : '';
+    if (!assetId) {
+      res.status(400).json({ error: 'Missing asset identifier.' });
+      return;
+    }
+
+    const catalog = await readCatalog();
+    const existing = catalog.assets.find((asset) => asset.id === assetId);
+    if (!existing) {
+      res.status(404).json({ error: 'Saved asset not found.' });
+      return;
+    }
+
+    await Promise.allSettled([
+      fs.rm(existing.outputAbsolutePath, { force: true }),
+      fs.rm(existing.metadataAbsolutePath, { force: true }),
+    ]);
+    await removeCatalogAsset(assetId);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Asset delete failed.' });
   }
 });
 
@@ -353,7 +470,7 @@ function getEffectiveFormat(format, removeBackground) {
   return format;
 }
 
-async function persistAssetArtifacts(metadata, result) {
+async function persistAssetArtifacts(metadata, result, existingAsset, previousAssetId) {
   await Promise.all([
     fs.mkdir(path.dirname(metadata.outputAbsolutePath), { recursive: true }),
     fs.mkdir(path.dirname(metadata.metadataAbsolutePath), { recursive: true }),
@@ -362,8 +479,33 @@ async function persistAssetArtifacts(metadata, result) {
   await fs.writeFile(metadata.outputAbsolutePath, result.outputBuffer);
   await fs.writeFile(metadata.metadataAbsolutePath, JSON.stringify(metadata, null, 2));
 
+  if (existingAsset) {
+    await cleanupReplacedAssetFiles(existingAsset, metadata);
+  }
+
+  await updateCatalogAsset(previousAssetId ?? metadata.id, metadata);
+}
+
+async function cleanupReplacedAssetFiles(existingAsset, metadata) {
+  if (existingAsset.outputAbsolutePath && existingAsset.outputAbsolutePath !== metadata.outputAbsolutePath) {
+    await fs.rm(existingAsset.outputAbsolutePath, { force: true }).catch(() => {});
+  }
+
+  if (existingAsset.metadataAbsolutePath && existingAsset.metadataAbsolutePath !== metadata.metadataAbsolutePath) {
+    await fs.rm(existingAsset.metadataAbsolutePath, { force: true }).catch(() => {});
+  }
+}
+
+async function updateCatalogAsset(previousAssetId, metadata) {
+  if (previousAssetId && previousAssetId !== metadata.id) {
+    const oldMetadataPath = path.join(metaRoot, `${previousAssetId}.asset.json`);
+    if (oldMetadataPath !== metadata.metadataAbsolutePath) {
+      await fs.rm(oldMetadataPath, { force: true }).catch(() => {});
+    }
+  }
+
   const catalog = await readCatalog();
-  const filtered = catalog.assets.filter((asset) => asset.id !== metadata.id);
+  const filtered = catalog.assets.filter((asset) => asset.id !== previousAssetId && asset.id !== metadata.id);
   filtered.push(metadata);
   filtered.sort((a, b) => a.id.localeCompare(b.id));
   const nextCatalog = {
@@ -372,6 +514,22 @@ async function persistAssetArtifacts(metadata, result) {
   };
   await fs.writeFile(catalogPath, JSON.stringify(nextCatalog, null, 2));
   await fs.writeFile(generatedManifestPath, buildGeneratedManifest(nextCatalog.assets));
+}
+
+async function removeCatalogAsset(assetId) {
+  const catalog = await readCatalog();
+  const filtered = catalog.assets.filter((asset) => asset.id !== assetId);
+  const nextCatalog = {
+    generatedAt: new Date().toISOString(),
+    assets: filtered,
+  };
+  await fs.writeFile(catalogPath, JSON.stringify(nextCatalog, null, 2));
+  await fs.writeFile(generatedManifestPath, buildGeneratedManifest(nextCatalog.assets));
+}
+
+async function findCatalogAsset(assetId) {
+  const catalog = await readCatalog();
+  return catalog.assets.find((asset) => asset.id === assetId) ?? null;
 }
 
 async function readCatalog() {
@@ -383,7 +541,7 @@ async function readCatalog() {
   }
 }
 
-function buildPersistedMetadata(draft, file, result) {
+function buildPersistedMetadata(draft, file, result, existingAsset) {
   const outputFolder = outputFolders[draft.category] ?? outputFolders.sprites;
   const outputFilename = `${draft.assetId}.${result.outputFormat}`;
   const outputAbsolutePath = path.join(outputFolder, outputFilename);
@@ -394,6 +552,7 @@ function buildPersistedMetadata(draft, file, result) {
   return {
     id: draft.assetId,
     name: draft.displayName,
+    status: existingAsset?.status ?? 'active',
     category: draft.category,
     mode: draft.mode,
     outputFormat: result.outputFormat,
@@ -437,9 +596,76 @@ function buildPersistedMetadata(draft, file, result) {
       mimeType: file.mimetype,
       sizeBytes: file.size,
     },
+    archivedAt: existingAsset?.status === 'archived' ? existingAsset.archivedAt : undefined,
     generatedAt: new Date().toISOString(),
     notes: draft.notes,
   };
+}
+
+function buildMetadataOnlyUpdate(existing, draft) {
+  const outputFolder = outputFolders[draft.category] ?? outputFolders.sprites;
+  const outputFilename = `${draft.assetId}.${existing.outputFormat}`;
+  const outputAbsolutePath = path.join(outputFolder, outputFilename);
+  const outputRelativePath = path.relative(repoRoot, outputAbsolutePath).replace(/\\/g, '/');
+  const metadataAbsolutePath = path.join(metaRoot, `${draft.assetId}.asset.json`);
+  const metadataRelativePath = path.relative(repoRoot, metadataAbsolutePath).replace(/\\/g, '/');
+
+  return {
+    ...existing,
+    id: draft.assetId,
+    name: draft.displayName,
+    category: draft.category,
+    mode: draft.mode,
+    maintainAspectRatio: !!draft.maintainAspectRatio,
+    resizeFit: draft.resizeFit,
+    outputRelativePath,
+    outputAbsolutePath,
+    metadataAbsolutePath,
+    metadataRelativePath,
+    exportSize: {
+      width: draft.exportWidth,
+      height: draft.exportHeight,
+    },
+    displaySize: {
+      width: draft.displayWidth,
+      height: draft.displayHeight,
+    },
+    optimization: {
+      enabled: draft.enableOptimization,
+      backgroundRemovalRequested: draft.removeBackground,
+      notes: existing.optimization?.notes ?? [],
+    },
+    spritesheet: draft.mode === 'image' ? undefined : {
+      columns: draft.columns,
+      rows: draft.rows,
+      frameRate: draft.frameRate,
+      animationType: draft.animationType,
+      origin: draft.origin,
+      collisionBox: draft.collisionBox,
+      frameCount: existing.spritesheet?.frameCount ?? Math.max(1, draft.columns * draft.rows),
+    },
+    video: draft.mode !== 'video' ? undefined : {
+      trimStartSeconds: draft.trimStartSeconds,
+      trimEndSeconds: draft.trimEndSeconds,
+      requestedFrameRate: draft.frameRate,
+      sampling: draft.videoSampling,
+    },
+    notes: draft.notes,
+    status: existing.status ?? 'active',
+    archivedAt: existing.status === 'archived' ? existing.archivedAt ?? new Date().toISOString() : undefined,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+async function relocateAssetFiles(existing, updated) {
+  if (existing.outputAbsolutePath !== updated.outputAbsolutePath) {
+    await fs.mkdir(path.dirname(updated.outputAbsolutePath), { recursive: true });
+    await fs.rename(existing.outputAbsolutePath, updated.outputAbsolutePath);
+  }
+
+  if (existing.metadataAbsolutePath && existing.metadataAbsolutePath !== updated.metadataAbsolutePath) {
+    await fs.rm(existing.metadataAbsolutePath, { force: true }).catch(() => {});
+  }
 }
 
 function buildGeneratedManifest(assets) {
@@ -453,7 +679,8 @@ function buildGeneratedManifest(assets) {
       : asset.mode === 'spritesheet'
         ? `${asset.spritesheet.animationType} animation sheet`
         : `${asset.category} asset`;
-    return `| \`${asset.id}\` | ${description} | \`${asset.outputRelativePath.replace('game/assets/', '')}\` | ${size} | ${format} | generated |`;
+    const status = asset.status === 'archived' ? 'archived' : 'generated';
+    return `| \`${asset.id}\` | ${description} | \`${asset.outputRelativePath.replace('game/assets/', '')}\` | ${size} | ${format} | ${status} |`;
   });
 
   return [
@@ -466,6 +693,18 @@ function buildGeneratedManifest(assets) {
     ...rows,
     '',
   ].join('\n');
+}
+
+function buildSavedAssetResponse(metadata, sourceBytes, outputBytes, notes, frameCount) {
+  return {
+    outputRelativePath: metadata.outputRelativePath,
+    metadataRelativePath: metadata.metadataRelativePath,
+    manifestRelativePath: path.relative(repoRoot, generatedManifestPath).replace(/\\/g, '/'),
+    sourceBytes,
+    outputBytes,
+    notes,
+    frameCount,
+  };
 }
 
 function runCommand(command, args, cwd) {
