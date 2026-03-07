@@ -32,7 +32,7 @@ const WORLD_W = 3600;
 const WORLD_H = 1080;
 const GROUND_BASE_Y = 900;    // Baseline ground level (lowest the terrain stays)
 const HERO_SPEED = 260;
-const JUMP_VELOCITY = -500;
+const JUMP_VELOCITY = -620;
 const TERRAIN_COLS = 72;       // Number of terrain columns (WORLD_W / COL_W)
 const COL_W = WORLD_W / TERRAIN_COLS;  // Width of each terrain column (50px)
 
@@ -51,6 +51,7 @@ export class MissionScene extends Phaser.Scene {
   private hero!: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private groundGroup!: Phaser.Physics.Arcade.StaticGroup;
+  private platformGroup!: Phaser.Physics.Arcade.StaticGroup;
   private pickupGroup!: Phaser.Physics.Arcade.Group;
   private exitZone!: Phaser.GameObjects.Zone;
 
@@ -58,6 +59,9 @@ export class MissionScene extends Phaser.Scene {
   private context!: MissionContext;
   private resourcesGathered: Record<string, number> = {};
   private missionComplete = false;
+  private isGrounded = false;
+  private jumpsRemaining = 0;
+  private heroNameTag: Phaser.GameObjects.Text | null = null;
   /** Per-column ground heights — terrain heightmap */
   private heightMap: number[] = [];
 
@@ -78,6 +82,7 @@ export class MissionScene extends Phaser.Scene {
     // Reset state
     this.resourcesGathered = {};
     this.missionComplete = false;
+    this.isGrounded = false;
 
     const ctx = this.gsm.missionContext;
     if (!ctx) {
@@ -99,6 +104,7 @@ export class MissionScene extends Phaser.Scene {
 
     // ── Ground ────────────────────────────────────────────
     this.groundGroup = this.physics.add.staticGroup();
+    this.platformGroup = this.physics.add.staticGroup();
     this._buildTerrain(biome);
 
     // ── Pickups ───────────────────────────────────────────
@@ -124,7 +130,9 @@ export class MissionScene extends Phaser.Scene {
     this._createHero();
 
     // ── Collisions ────────────────────────────────────────
-    this.physics.add.collider(this.hero, this.groundGroup);
+    // Terrain traversal is handled manually in update() via _getGroundYInterp(),
+    // so groundGroup needs no collider. platformGroup still uses physics.
+    this.physics.add.collider(this.hero, this.platformGroup);
     this.physics.add.overlap(this.hero, this.pickupGroup, this._onPickup as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this);
     this.physics.add.overlap(this.hero, this.exitZone, this._onReachExit as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this);
 
@@ -146,9 +154,40 @@ export class MissionScene extends Phaser.Scene {
     if (this.missionComplete) return;
 
     const body = this.hero.body!;
-    const onGround = body.blocked.down;
 
-    // Horizontal movement
+    // ── Smooth terrain following ───────────────────────────────────────────
+    // Instead of relying on physics collision with per-column bodies (which
+    // creates discrete snaps at every column boundary), we interpolate the
+    // heightmap and pin the hero's feet to that smooth surface each frame.
+    // Physics collision is only used for floating platforms.
+    const terrainY = this._getGroundYInterp(this.hero.x);
+
+    // Detect landing: falling downward and feet have reached terrain level
+    if (!this.isGrounded && body.velocity.y >= 0 && this.hero.y >= terrainY) {
+      this.isGrounded = true;
+      this.jumpsRemaining = 2; // restore both jumps on landing
+    }
+    // Go airborne: jumped, or walked off a ledge (feet above terrain)
+    if (this.isGrounded && (body.velocity.y < -50 || this.hero.y < terrainY - 4)) {
+      this.isGrounded = false;
+    }
+    // While grounded on terrain, pin feet to the interpolated surface.
+    // We avoid body.reset() because it calls stop() which zeros ALL velocity
+    // (including X), preventing horizontal movement. Direct body.y assignment
+    // corrects only the vertical position and leaves velocity.x intact.
+    if (this.isGrounded && !body.blocked.down) {
+      body.y = terrainY - body.height; // feet = body.bottom = terrainY
+      body.prev.y = body.y;            // tell Phaser this isn't a teleport
+      body.velocity.y = 0;
+    }
+
+    const onGround = body.blocked.down || this.isGrounded;
+    // Restore jumps when landing on a platform too
+    if (body.blocked.down && this.jumpsRemaining < 2) {
+      this.jumpsRemaining = 2;
+    }
+
+    // ── Horizontal movement ────────────────────────────────────────────────
     if (this.cursors.left.isDown) {
       body.setVelocityX(-HERO_SPEED);
     } else if (this.cursors.right.isDown) {
@@ -157,9 +196,18 @@ export class MissionScene extends Phaser.Scene {
       body.setVelocityX(0);
     }
 
-    // Jump
-    if ((this.cursors.up.isDown || this.cursors.space?.isDown) && onGround) {
+    // ── Jump (double jump supported) ──────────────────────────────────────
+    const jumpPressed = Phaser.Input.Keyboard.JustDown(this.cursors.up) ||
+                        Phaser.Input.Keyboard.JustDown(this.cursors.space!);
+    if (jumpPressed && (onGround || this.jumpsRemaining > 0)) {
       body.setVelocityY(JUMP_VELOCITY);
+      this.isGrounded = false;
+      this.jumpsRemaining = Math.max(0, this.jumpsRemaining - 1);
+    }
+
+    // Update name tag position to follow the hero
+    if (this.heroNameTag) {
+      this.heroNameTag.setPosition(this.hero.x, this.hero.y - 110);
     }
 
     // Update HUD
@@ -249,6 +297,17 @@ export class MissionScene extends Phaser.Scene {
       heights.push(Math.round(h));
     }
 
+    // Smooth the heightmap with several passes of a weighted moving average.
+    // This reduces abrupt height differences between adjacent columns so the
+    // hero can traverse gradual slopes without getting blocked.
+    for (let pass = 0; pass < 8; pass++) {
+      for (let col = 1; col < TERRAIN_COLS - 1; col++) {
+        heights[col] = Math.round(
+          (heights[col - 1]! + heights[col]! * 2 + heights[col + 1]!) / 4,
+        );
+      }
+    }
+
     return heights;
   }
 
@@ -291,7 +350,8 @@ export class MissionScene extends Phaser.Scene {
     }
     gfx.strokePath();
 
-    // Physics bodies: one per column, thin rectangles at the surface height
+    // Physics bodies: full-height rectangles from the surface down to the world
+    // floor so the hero can't fall through even at high fall speeds.
     for (let col = 0; col < TERRAIN_COLS; col++) {
       const x = col * COL_W + COL_W / 2;
       const y = this.heightMap[col]!;
@@ -335,7 +395,7 @@ export class MissionScene extends Phaser.Scene {
       platGfx.fillRect(px - pw / 2 + 4, py + 18, pw - 8, 6);
 
       const platBody = this.add.zone(px, py + 9, pw, 18);
-      this.groundGroup.add(platBody);
+      this.platformGroup.add(platBody);
     }
   }
 
@@ -358,6 +418,17 @@ export class MissionScene extends Phaser.Scene {
     const col = Math.floor(worldX / COL_W);
     const clampedCol = Math.max(0, Math.min(TERRAIN_COLS - 1, col));
     return this.heightMap[clampedCol]!;
+  }
+
+  /** Linearly interpolates terrain height between adjacent columns.
+   *  Returns a smooth, continuous Y value as worldX changes — no step snapping. */
+  private _getGroundYInterp(worldX: number): number {
+    const exactCol = worldX / COL_W;
+    const col = Math.floor(exactCol);
+    const frac = exactCol - col;
+    const y0 = this.heightMap[Math.max(0, Math.min(TERRAIN_COLS - 1, col))]!;
+    const y1 = this.heightMap[Math.max(0, Math.min(TERRAIN_COLS - 1, col + 1))]!;
+    return y0 + (y1 - y0) * frac;
   }
 
   // ── Pickups ────────────────────────────────────────────
@@ -483,12 +554,12 @@ export class MissionScene extends Phaser.Scene {
     // Body occupies (10, 14) → (38, 84) → bottom at frame bottom → on ground.
     this.hero.body!.setSize(28, 70, false);
     this.hero.body!.setOffset((TW - 28) / 2, TH - 70);  // (10, 14)
-    this.hero.body!.setGravityY(600);
+    this.hero.body!.setGravityY(1400);
 
     // Hero name label (scrolls with the world)
     const activeHero = this.heroSystem.getById(this.context.activeHeroId);
     if (activeHero) {
-      this.add.text(100, groundY - 110, activeHero.name, {
+      this.heroNameTag = this.add.text(100, groundY - 110, activeHero.name, {
         fontSize: '16px', color: '#66aaff', fontFamily: 'monospace',
       }).setOrigin(0.5);
     }
@@ -522,6 +593,7 @@ export class MissionScene extends Phaser.Scene {
   private _completeMission(outcome: 'success' | 'retreat' | 'failure'): void {
     this.missionComplete = true;
     this.hero.body!.setVelocity(0, 0);
+    this.hero.body!.setGravityY(0); // prevent falling through terrain during the exit delay
 
     // Build hero status updates
     const heroUpdates = [
