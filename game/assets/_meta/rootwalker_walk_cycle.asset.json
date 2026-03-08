@@ -1,0 +1,52 @@
+{
+  "id": "rootwalker_walk_cycle",
+  "name": "RootWalker Walk Cycle",
+  "status": "active",
+  "category": "animations",
+  "mode": "spritesheet",
+  "outputFormat": "webp",
+  "maintainAspectRatio": true,
+  "resizeFit": "contain",
+  "outputRelativePath": "game/assets/animations/rootwalker_walk_cycle.webp",
+  "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\animations\\rootwalker_walk_cycle.webp",
+  "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\rootwalker_walk_cycle.asset.json",
+  "metadataRelativePath": "game/assets/_meta/rootwalker_walk_cycle.asset.json",
+  "exportSize": {
+    "width": 466,
+    "height": 466
+  },
+  "displaySize": {
+    "width": 160,
+    "height": 160
+  },
+  "optimization": {
+    "enabled": true,
+    "backgroundRemovalRequested": false,
+    "notes": []
+  },
+  "spritesheet": {
+    "columns": 6,
+    "rows": 6,
+    "frameRate": 12,
+    "animationType": "walk",
+    "origin": {
+      "x": 0.47,
+      "y": 0.95
+    },
+    "collisionBox": {
+      "x": 36,
+      "y": 30,
+      "width": 96,
+      "height": 121
+    },
+    "frameCount": 36
+  },
+  "source": {
+    "kind": "image",
+    "name": "RootWalker-Walk-cycle.png",
+    "mimeType": "image/png",
+    "sizeBytes": 6848098
+  },
+  "generatedAt": "2026-03-08T00:12:51.712Z",
+  "notes": ""
+}

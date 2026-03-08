@@ -158,8 +158,9 @@ export default function App() {
 
         const nextMode = info.kind === 'video' ? 'video' : current.mode;
         const inferredCategory = info.kind === 'video' ? 'animations' : inferCategoryFromMode(nextMode);
-        const displayWidth = current.displayWidth > 0 ? current.displayWidth : Math.min(info.width, 220);
-        const aspect = info.width > 0 ? info.height / info.width : 1;
+        const modeSizing = getSuggestedSizingForMode(nextMode, info, current.columns, current.rows);
+        const displayWidth = current.displayWidth > 0 ? current.displayWidth : Math.min(modeSizing.exportWidth, 220);
+        const aspect = modeSizing.exportWidth > 0 ? modeSizing.exportHeight / modeSizing.exportWidth : 1;
         const displayHeight = current.maintainAspectRatio || current.displayHeight <= 0
           ? Math.max(1, Math.round(displayWidth * aspect))
           : current.displayHeight;
@@ -174,8 +175,8 @@ export default function App() {
           displayName: current.displayName === 'New Asset' ? humanizeName(baseName) : current.displayName,
           mode: nextMode,
           category: current.category === 'sprites' || current.category === 'animations' ? inferredCategory : current.category,
-          exportWidth: info.width,
-          exportHeight: info.height,
+          exportWidth: modeSizing.exportWidth,
+          exportHeight: modeSizing.exportHeight,
           displayWidth,
           displayHeight,
           frameRate: info.kind === 'video' ? Math.max(current.frameRate, 12) : current.frameRate,
@@ -789,11 +790,27 @@ export default function App() {
               options={['image', 'spritesheet', 'video']}
               onChange={(value) => {
                 const mode = value as AssetDraft['mode'];
-                setDraft((current) => ({
-                  ...current,
-                  mode,
-                  category: mode === 'image' && current.category === 'animations' ? 'sprites' : inferCategoryFromMode(mode),
-                }));
+                setDraft((current) => {
+                  const sourceSizing = sourceInfo
+                    ? getSuggestedSizingForMode(mode, sourceInfo, current.columns, current.rows)
+                    : null;
+                  const nextExportWidth = sourceSizing?.exportWidth ?? current.exportWidth;
+                  const nextExportHeight = sourceSizing?.exportHeight ?? current.exportHeight;
+                  const displayWidth = current.displayWidth > 0 ? current.displayWidth : Math.min(nextExportWidth, 220);
+                  const aspect = nextExportWidth > 0 ? nextExportHeight / nextExportWidth : 1;
+                  const displayHeight = current.maintainAspectRatio
+                    ? Math.max(1, Math.round(displayWidth * aspect))
+                    : current.displayHeight;
+
+                  return {
+                    ...current,
+                    mode,
+                    category: mode === 'image' && current.category === 'animations' ? 'sprites' : inferCategoryFromMode(mode),
+                    exportWidth: nextExportWidth,
+                    exportHeight: nextExportHeight,
+                    displayHeight,
+                  };
+                });
               }}
             />
             <SelectField label="Output format" value={draft.outputFormat} options={OUTPUT_FORMATS} onChange={(value) => updateDraft(setDraft, 'outputFormat', value as OutputFormat)} />
@@ -1541,6 +1558,25 @@ function getAssetAspectRatio(draft: AssetDraft, sourceInfo: SourceInfo | null): 
   const perFrameWidth = sourceInfo.width / Math.max(1, draft.columns);
   const perFrameHeight = sourceInfo.height / Math.max(1, draft.rows);
   return safeAspectRatio(perFrameWidth, perFrameHeight);
+}
+
+function getSuggestedSizingForMode(
+  mode: AssetDraft['mode'],
+  sourceInfo: SourceInfo,
+  columns: number,
+  rows: number,
+): { exportWidth: number; exportHeight: number } {
+  if (mode === 'image') {
+    return {
+      exportWidth: Math.max(1, Math.round(sourceInfo.width)),
+      exportHeight: Math.max(1, Math.round(sourceInfo.height)),
+    };
+  }
+
+  return {
+    exportWidth: Math.max(1, Math.round(sourceInfo.width / Math.max(1, columns))),
+    exportHeight: Math.max(1, Math.round(sourceInfo.height / Math.max(1, rows))),
+  };
 }
 
 function safeAspectRatio(width: number, height: number): number {

@@ -23,6 +23,7 @@ const metaRoot = path.join(assetsRoot, '_meta');
 const catalogPath = path.join(assetsRoot, 'manifest.catalog.json');
 const generatedManifestPath = path.join(assetsRoot, 'MANIFEST.generated.md');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1024 * 1024 * 500 } });
+const sharpInputOptions = { animated: false, limitInputPixels: false };
 
 const app = express();
 app.use(cors());
@@ -87,7 +88,7 @@ app.post('/api/process', upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({
-      error: error instanceof Error ? error.message : 'Asset processing failed.',
+      error: formatProcessingError(error),
     });
   }
 });
@@ -203,7 +204,7 @@ async function processRasterAsset(file, draft) {
   }
 
   if (draft.mode === 'image') {
-    let pipeline = sharp(file.buffer, { animated: false }).rotate();
+    let pipeline = sharp(file.buffer, sharpInputOptions).rotate();
     if (draft.removeBackground) {
       pipeline = await removeBackgroundFromPipeline(pipeline);
       notes.push('Local matte background removal applied using corner-color sampling.');
@@ -226,7 +227,7 @@ async function processRasterAsset(file, draft) {
 
   const columns = Math.max(1, draft.columns);
   const rows = Math.max(1, draft.rows);
-  const source = sharp(file.buffer, { animated: false }).rotate();
+  const source = sharp(file.buffer, sharpInputOptions).rotate();
   const metadata = await source.metadata();
   const frameWidth = Math.floor((metadata.width ?? 1) / columns);
   const frameHeight = Math.floor((metadata.height ?? 1) / rows);
@@ -236,7 +237,7 @@ async function processRasterAsset(file, draft) {
 
   for (let row = 0; row < rows; row += 1) {
     for (let col = 0; col < columns; col += 1) {
-      let frame = sharp(file.buffer, { animated: false }).extract({
+      let frame = sharp(file.buffer, sharpInputOptions).extract({
         left: col * frameWidth,
         top: row * frameHeight,
         width: frameWidth,
@@ -342,7 +343,7 @@ async function processVideoAsset(file, draft) {
   }
   for (let index = 0; index < targetFrameCount; index += 1) {
     const frameName = frameNames[Math.min(index, frameNames.length - 1)];
-    let frame = sharp(path.join(framesDir, frameName));
+    let frame = sharp(path.join(framesDir, frameName), { limitInputPixels: false });
     if (draft.removeBackground) {
       frame = await removeBackgroundFromPipeline(frame);
     }
@@ -468,6 +469,18 @@ function getEffectiveFormat(format, removeBackground) {
     return 'png';
   }
   return format;
+}
+
+function formatProcessingError(error) {
+  if (!(error instanceof Error)) {
+    return 'Asset processing failed.';
+  }
+
+  if (error.message.toLowerCase().includes('pixel limit')) {
+    return 'The generated asset is too large for Sharp\'s default safety limit. The server now allows larger source images, but if this still happens reduce the export frame size or grid size before saving.';
+  }
+
+  return error.message;
 }
 
 async function persistAssetArtifacts(metadata, result, existingAsset, previousAssetId) {
