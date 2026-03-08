@@ -10,6 +10,7 @@ export default defineConfig({
       '@data': path.resolve(__dirname, 'game/core/data'),
       '@entities': path.resolve(__dirname, 'game/core/entities'),
       '@assets': path.resolve(__dirname, 'game/assets'),
+      '@audio':  path.resolve(__dirname, 'game/audio'),
     },
   },
   build: {

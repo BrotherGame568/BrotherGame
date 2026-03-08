@@ -1,3 +1,144 @@
+/* ─── Tab bar ──────────────────────────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border: 1px solid rgba(145, 169, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(14, 19, 35, 0.72);
+  color: #94a9ea;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 140ms, color 140ms, border-color 140ms;
+}
+
+.tab-btn:hover {
+  background: rgba(84, 122, 255, 0.14);
+  color: #dce5ff;
+}
+
+.tab-btn.active {
+  background: rgba(84, 122, 255, 0.22);
+  border-color: rgba(145, 169, 255, 0.45);
+  color: #dce5ff;
+}
+
+/* ─── Audio manager ─────────────────────────────────────────────── */
+.audio-manager-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.audio-asset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.audio-asset-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border: 1px solid rgba(145, 169, 255, 0.14);
+  border-radius: 14px;
+  background: rgba(10, 14, 27, 0.5);
+  color: inherit;
+  text-align: left;
+  transition: border-color 120ms, background 120ms;
+  width: 100%;
+}
+
+.audio-asset-card:hover {
+  background: rgba(84, 122, 255, 0.1);
+  border-color: rgba(145, 169, 255, 0.3);
+}
+
+.audio-asset-card.selected {
+  border-color: rgba(84, 122, 255, 0.6);
+  background: rgba(84, 122, 255, 0.14);
+}
+
+.audio-asset-card.archived {
+  opacity: 0.54;
+}
+
+.audio-asset-card-icon {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(84, 122, 255, 0.16);
+  color: #85a8ff;
+}
+
+.audio-asset-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.audio-asset-card-info strong {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audio-asset-card-info span {
+  font-size: 12px;
+  color: #94a9ea;
+}
+
+.audio-asset-card-info small {
+  font-size: 11px;
+  color: #5a6a99;
+}
+
+.audio-player {
+  width: 100%;
+  border-radius: 8px;
+  accent-color: #547aff;
+}
+
+.audio-selected-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px;
+  border: 1px solid rgba(145, 169, 255, 0.16);
+  border-radius: 18px;
+  background: rgba(10, 14, 27, 0.6);
+}
+
+.audio-selected-icon {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 64px;
+  border-radius: 12px;
+  background: rgba(84, 122, 255, 0.1);
+  color: #547aff;
+  margin-bottom: 4px;
+}
+
+.audio-editor-grid {
+  grid-template-columns: minmax(0, 1fr) 400px !important;
+}
+
 :root {
   color-scheme: dark;
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;

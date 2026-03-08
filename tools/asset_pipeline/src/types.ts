@@ -105,3 +105,45 @@ export interface AssetCatalogDocument {
   generatedAt: string;
   assets: PersistedAssetRecord[];
 }
+
+// ─── Audio types ────────────────────────────────────────────────────────────
+
+export type AudioCategory = 'music' | 'sfx' | 'ambience';
+export type AudioOutputFormat = 'wav' | 'opus' | 'ogg';
+
+export interface AudioDraft {
+  assetId: string;
+  displayName: string;
+  category: AudioCategory;
+  outputFormat: AudioOutputFormat;
+  trimStartSeconds: number;
+  trimEndSeconds: number;
+  normalize: boolean;
+  loopable: boolean;
+  notes: string;
+}
+
+export interface PersistedAudioRecord {
+  id: string;
+  name: string;
+  status: 'active' | 'archived';
+  category: AudioCategory;
+  outputFormat: AudioOutputFormat;
+  outputRelativePath: string;
+  outputAbsolutePath?: string;
+  metadataRelativePath: string;
+  metadataAbsolutePath?: string;
+  duration: number;
+  loopable: boolean;
+  normalize: boolean;
+  trim: { startSeconds: number; endSeconds: number };
+  source: { name: string; mimeType: string; sizeBytes: number };
+  generatedAt: string;
+  archivedAt?: string;
+  notes: string;
+}
+
+export interface AudioCatalogDocument {
+  generatedAt: string;
+  assets: PersistedAudioRecord[];
+}

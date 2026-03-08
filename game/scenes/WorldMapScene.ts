@@ -262,6 +262,9 @@ export class WorldMapScene extends Phaser.Scene {
   }
 
   preload(): void {
+    // Register this scene as the Phaser audio host so music tracks are loaded
+    // into the cache before create() runs.
+    this.audioService.attachScene(this);
     if (!this.textures.exists('city_zoom')) {
       this.load.image('city_zoom', cityZoomUrl);
     }
@@ -375,6 +378,13 @@ export class WorldMapScene extends Phaser.Scene {
     });
 
     if (this.gsm.missionResult) this._showMissionResult();
+
+    // Start the world-map music with a cinematic 2.5 s fade-in.
+    this.audioService.setAmbience('music_overworld_01', 2500);
+    // Smooth 1.5 s fade-out when the scene shuts down (mission/city launch).
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.audioService.stopAll(1500);
+    });
   }
 
   private _buildWorldBackground(): void {
@@ -1693,6 +1703,7 @@ export class WorldMapScene extends Phaser.Scene {
     this._closeModal();
     const uiScene = this.scene.get('UIScene');
     if (uiScene) (uiScene as unknown as { hide(): void }).hide();
+    this.audioService.stopAll(1500); // smooth 1.5 s fade before scene switch
     this.scene.start('MissionScene', this.services);
   }
 
@@ -1704,6 +1715,7 @@ export class WorldMapScene extends Phaser.Scene {
   private _openCityView(): void {
     const uiScene = this.scene.get('UIScene');
     if (uiScene) (uiScene as unknown as { hide(): void }).hide();
+    this.audioService.stopAll(1500); // smooth 1.5 s fade before scene switch
     this.scene.start('CityViewScene', this.services);
   }
 

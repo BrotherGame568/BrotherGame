@@ -14,6 +14,7 @@
 
 import Phaser from 'phaser';
 import type { IGameStateManager } from '@systems/IGameStateManager';
+import type { IAudioService } from '@services/IAudioService';
 import { RESOURCE_DEFS } from '@data/ResourceDefinitions';
 
 export const UI_SCENE_KEY = 'UIScene';
@@ -27,18 +28,23 @@ const TIER_COLORS: Record<number, string> = {
 
 export class UIScene extends Phaser.Scene {
   private gsm!: IGameStateManager;
+  private audioService!: IAudioService;
+  // DEV: mute state for the music toggle button
+  private _musicMuted = false;
 
   // Display objects
   private cycleText!: Phaser.GameObjects.Text;
   private resourceTexts: Map<string, Phaser.GameObjects.Text> = new Map();
   private barBg!: Phaser.GameObjects.Graphics;
+  private _muteBtn!: Phaser.GameObjects.Text;
 
   constructor() {
     super({ key: UI_SCENE_KEY });
   }
 
-  init(data: { gsm: IGameStateManager }): void {
+  init(data: { gsm: IGameStateManager; audioService?: IAudioService }): void {
     this.gsm = data.gsm;
+    if (data.audioService) this.audioService = data.audioService;
   }
 
   create(): void {
@@ -74,6 +80,29 @@ export class UIScene extends Phaser.Scene {
     });
 
     this._refresh();
+
+    // DEV: discrete music mute toggle — top-right corner
+    const btnX = W - 12;
+    const btnY = 10;
+    this._muteBtn = this.add.text(btnX, btnY, '\uD83D\uDD0A', {
+      fontSize: '22px',
+      fontFamily: 'monospace',
+      color: '#aabbff',
+      backgroundColor: '#00000066',
+      padding: { left: 6, right: 6, top: 2, bottom: 2 },
+    })
+      .setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => {
+        this._musicMuted = !this._musicMuted;
+        if (this.audioService) {
+          this.audioService.setVolume(this._musicMuted ? 0 : 1);
+        }
+        this._muteBtn.setText(this._musicMuted ? '\uD83D\uDD07' : '\uD83D\uDD0A');
+        this._muteBtn.setStyle({ color: this._musicMuted ? '#ff6666' : '#aabbff' });
+      })
+      .on('pointerover', () => this._muteBtn.setStyle({ color: '#ffffff' }))
+      .on('pointerout',  () => this._muteBtn.setStyle({ color: this._musicMuted ? '#ff6666' : '#aabbff' }));
   }
 
   update(): void {

@@ -85,18 +85,19 @@
 ## Music Tracks
 
 Music tracks are longer looping compositions. `IAudioService.setAmbience(trackId)` crossfades to the given track.
+See `game/core/services/PhaserAudioService.ts` `TRACK_URLS` for the mapping from track ID → audio file.
 
-| Track ID | Context | Loop | Status |
-|---|---|---|---|
-| `music_world_map` | WorldMapScene — sailing the skies, calm exploration | Yes | planned |
-| `music_hex_zoom` | HexZoomScene — nearby surface, anticipation | Yes | planned |
-| `music_mission_explore` | MissionScene — exploration tone | Yes | planned |
-| `music_mission_combat` | MissionScene — combat engaged | Yes | planned |
-| `music_city` | CityViewScene — city management, warm | Yes | planned |
-| `music_mission_success` | Mission success sting | No | planned |
-| `music_mission_retreat` | Mission retreat sting | No | planned |
-| `music_mission_failure` | Mission failure sting | No | planned |
-| `music_cycle_advance` | End of cycle, new route starting | No | planned |
+| Track ID | File | Context | Loop | Status |
+|---|---|---|---|---|
+| `music_overworld_01` | `music/overworld_track01.opus` | WorldMapScene — sailing the skies, calm exploration | Yes | **active** |
+| `music_hex_zoom` | _(not yet assigned)_ | HexZoomScene — nearby surface, anticipation | Yes | planned |
+| `music_mission_explore` | _(not yet assigned)_ | MissionScene — exploration tone | Yes | planned |
+| `music_mission_combat` | _(not yet assigned)_ | MissionScene — combat engaged | Yes | planned |
+| `music_city` | _(not yet assigned)_ | CityViewScene — city management, warm | Yes | planned |
+| `music_mission_success` | _(not yet assigned)_ | Mission success sting | No | planned |
+| `music_mission_retreat` | _(not yet assigned)_ | Mission retreat sting | No | planned |
+| `music_mission_failure` | _(not yet assigned)_ | Mission failure sting | No | planned |
+| `music_cycle_advance` | _(not yet assigned)_ | End of cycle, new route starting | No | planned |
 
 ---
 

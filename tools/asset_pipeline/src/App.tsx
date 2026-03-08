@@ -11,6 +11,7 @@ import {
   Film,
   FilePenLine,
   ImagePlus,
+  Music,
   Plus,
   RefreshCw,
   ScanLine,
@@ -18,7 +19,7 @@ import {
   Trash2,
   WandSparkles,
 } from 'lucide-react';
-import type { AssetCategory, AssetDraft, AnimationType, OutputFormat, PersistedAssetRecord, ResizeFitMode, SourceInfo, VideoSamplingMode } from './types';
+import type { AssetCategory, AssetDraft, AnimationType, AudioCategory, AudioCatalogDocument, AudioDraft, AudioOutputFormat, OutputFormat, PersistedAssetRecord, PersistedAudioRecord, ResizeFitMode, SourceInfo, VideoSamplingMode } from './types';
 import {
   buildAssetMetadata,
   buildDraftFromPersistedAsset,
@@ -41,6 +42,11 @@ import {
   updateAssetArchiveStatus,
   updateAssetMetadataInWorkspace,
   type SavedAssetResult,
+  fetchAudioCatalog,
+  processAudioInWorkspace,
+  updateAudioArchiveStatus,
+  deleteWorkspaceAudio,
+  type AudioSavedResult,
 } from './lib/apiClient';
 
 const CATEGORY_OPTIONS: AssetCategory[] = ['backgrounds', 'sprites', 'ui', 'animations'];
@@ -71,6 +77,7 @@ export default function App() {
   const [savedAsset, setSavedAsset] = useState<SavedAssetResult | null>(null);
   const [currentAssetId, setCurrentAssetId] = useState<string | null>(null);
   const pendingLoadedDraftRef = useRef<AssetDraft | null>(null);
+  const [appTab, setAppTab] = useState<'visual' | 'audio'>('visual');
   const [openSections, setOpenSections] = useState({
     import: true,
     metadata: false,
@@ -607,7 +614,20 @@ export default function App() {
         </div>
       </header>
 
-      {appView === 'library' ? (
+      <div className="tab-bar">
+        <button type="button" className={`tab-btn${appTab === 'visual' ? ' active' : ''}`} onClick={() => setAppTab('visual')}>
+          <ImagePlus size={16} />
+          Visual Assets
+        </button>
+        <button type="button" className={`tab-btn${appTab === 'audio' ? ' active' : ''}`} onClick={() => setAppTab('audio')}>
+          <Music size={16} />
+          Audio
+        </button>
+      </div>
+
+      {appTab === 'audio' ? (
+        <AudioManager backendReady={backendReady} />
+      ) : appView === 'library' ? (
         <main className="library-grid">
           <section className="panel stack">
             <PanelHeader icon={<Boxes size={18} />} title="Asset library" subtitle="Browse, search, edit, archive, and delete saved workspace assets." />
@@ -1061,6 +1081,341 @@ export default function App() {
           {draft.removeBackground ? ' Background removal requested.' : ' Background removal disabled.'}
         </span>
       </footer>
+    </div>
+  );
+}
+
+// ─── Audio Manager ────────────────────────────────────────────────────────────────────
+
+function createDefaultAudioDraft(): AudioDraft {
+  return {
+    assetId: '',
+    displayName: '',
+    category: 'sfx',
+    outputFormat: 'wav',
+    trimStartSeconds: 0,
+    trimEndSeconds: 0,
+    normalize: false,
+    loopable: false,
+    notes: '',
+  };
+}
+
+function AudioManager({ backendReady }: { backendReady: boolean }) {
+  const [audioView, setAudioView] = useState<'library' | 'editor'>('library');
+  const [catalog, setCatalog] = useState<AudioCatalogDocument | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
+  const [audioSearch, setAudioSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
+  const [selectedAsset, setSelectedAsset] = useState<PersistedAudioRecord | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [draft, setDraft] = useState<AudioDraft>(createDefaultAudioDraft);
+  const [status, setStatus] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const refreshCatalog = async () => {
+    if (!backendReady) return;
+    setIsLoadingCatalog(true);
+    setCatalogError(null);
+    try {
+      const data = await fetchAudioCatalog();
+      setCatalog(data as AudioCatalogDocument);
+    } catch (e) {
+      setCatalogError(e instanceof Error ? e.message : 'Failed to load audio catalog.');
+    } finally {
+      setIsLoadingCatalog(false);
+    }
+  };
+
+  useEffect(() => { void refreshCatalog(); }, [backendReady]);
+
+  const filteredAssets = useMemo(() => {
+    if (!catalog) return [];
+    return catalog.assets.filter((a) => {
+      if (!showArchived && a.status === 'archived') return false;
+      if (!audioSearch) return true;
+      const q = audioSearch.toLowerCase();
+      return a.id.toLowerCase().includes(q) || a.name.toLowerCase().includes(q) || a.category.toLowerCase().includes(q);
+    });
+  }, [catalog, audioSearch, showArchived]);
+
+  const handleSelectAsset = async (asset: PersistedAudioRecord) => {
+    setSelectedAsset(asset);
+    setPreviewUrl(null);
+    try {
+      const blob = await fetchWorkspaceAssetFile(asset.outputRelativePath);
+      const url = URL.createObjectURL(blob);
+      setPreviewUrl(url);
+    } catch { /* no preview */ }
+  };
+
+  const handleEditAsset = (asset: PersistedAudioRecord) => {
+    setEditingAssetId(asset.id);
+    setDraft({
+      assetId: asset.id,
+      displayName: asset.name,
+      category: asset.category as AudioCategory,
+      outputFormat: asset.outputFormat as AudioOutputFormat,
+      trimStartSeconds: asset.trim?.startSeconds ?? 0,
+      trimEndSeconds: asset.trim?.endSeconds ?? 0,
+      normalize: asset.normalize,
+      loopable: asset.loopable,
+      notes: asset.notes ?? '',
+    });
+    setAudioFile(null);
+    setSaveError(null);
+    setAudioView('editor');
+  };
+
+  const handleNewAsset = () => {
+    setEditingAssetId(null);
+    setDraft(createDefaultAudioDraft());
+    setAudioFile(null);
+    setSaveError(null);
+    setAudioView('editor');
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setAudioFile(file);
+    if (file && !draft.assetId) {
+      const stem = file.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+      setDraft((d) => ({ ...d, assetId: stem, displayName: stem.replace(/_/g, ' ') }));
+    }
+  };
+
+  const handleSave = async () => {
+    if (!draft.assetId.trim()) { setSaveError('Asset ID is required.'); return; }
+    if (!draft.displayName.trim()) { setSaveError('Display name is required.'); return; }
+    if (!audioFile && !editingAssetId) { setSaveError('Select an audio file to import.'); return; }
+    setIsProcessing(true);
+    setSaveError(null);
+    setStatus('Processing audio…');
+    try {
+      let result: AudioSavedResult;
+      if (audioFile) {
+        result = await processAudioInWorkspace(audioFile, draft, editingAssetId);
+      } else {
+        const res = await fetch('/api/audio/metadata', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draft, currentAssetId: editingAssetId }),
+        });
+        const data = await res.json() as { ok?: boolean; savedAsset?: AudioSavedResult; error?: string };
+        if (!res.ok || !data.ok) throw new Error(data.error ?? 'Metadata update failed.');
+        result = data.savedAsset!;
+      }
+      setStatus(`Saved: ${result.outputRelativePath}`);
+      await refreshCatalog();
+      setAudioView('library');
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Save failed.');
+      setStatus('');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleArchiveToggle = async (asset: PersistedAudioRecord) => {
+    try {
+      await updateAudioArchiveStatus(asset.id, asset.status !== 'archived');
+      if (selectedAsset?.id === asset.id) setSelectedAsset(null);
+      await refreshCatalog();
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : 'Status change failed.');
+    }
+  };
+
+  const handleDelete = async (asset: PersistedAudioRecord) => {
+    if (!confirm(`Delete "${asset.name}"? This cannot be undone.`)) return;
+    try {
+      await deleteWorkspaceAudio(asset.id);
+      if (selectedAsset?.id === asset.id) { setSelectedAsset(null); setPreviewUrl(null); }
+      await refreshCatalog();
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : 'Delete failed.');
+    }
+  };
+
+  const categoryLabel: Record<AudioCategory, string> = { music: 'Music', sfx: 'SFX', ambience: 'Ambience' };
+
+  if (audioView === 'editor') {
+    return (
+      <div className="editor-grid audio-editor-grid">
+        <section className="panel stack">
+          <PanelHeader icon={<Music size={18} />} title={editingAssetId ? 'Edit audio asset' : 'Import audio'} subtitle="Convert and save an audio file to game/audio/." />
+
+          <div className="field full-span">
+            <label className="field">
+              <span>Source audio file{editingAssetId ? ' (optional – leave empty to only update metadata)' : ''}</span>
+              <input ref={fileInputRef} type="file" accept="audio/*,.wav,.mp3,.ogg,.opus,.flac,.aac,.m4a" onChange={handleFileChange} style={{ display: 'none' }} />
+              <button type="button" className="secondary-button" onClick={() => fileInputRef.current?.click()}>
+                <ImagePlus size={14} />
+                {audioFile ? audioFile.name : 'Choose audio file…'}
+              </button>
+            </label>
+          </div>
+
+          <label className="field">
+            <span>Asset ID</span>
+            <input value={draft.assetId} onChange={(e) => setDraft((d) => ({ ...d, assetId: e.target.value.replace(/[^a-z0-9_-]/gi, '_').toLowerCase() }))} placeholder="e.g. footstep_stone" />
+          </label>
+
+          <label className="field">
+            <span>Display name</span>
+            <input value={draft.displayName} onChange={(e) => setDraft((d) => ({ ...d, displayName: e.target.value }))} placeholder="e.g. Footstep (Stone)" />
+          </label>
+
+          <label className="field">
+            <span>Category</span>
+            <select value={draft.category} onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value as AudioCategory }))}>
+              <option value="sfx">SFX (saved as WAV)</option>
+              <option value="music">Music (saved as Opus)</option>
+              <option value="ambience">Ambience (saved as Opus)</option>
+            </select>
+          </label>
+
+          <label className="field">
+            <span>Output format</span>
+            <select value={draft.outputFormat} onChange={(e) => setDraft((d) => ({ ...d, outputFormat: e.target.value as AudioOutputFormat }))}>
+              <option value="wav">WAV (lossless, best for SFX)</option>
+              <option value="opus">Opus (efficient, best for music)</option>
+              <option value="ogg">OGG Vorbis</option>
+            </select>
+          </label>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <label className="field">
+              <span>Trim start (s)</span>
+              <input type="number" min={0} step={0.1} value={draft.trimStartSeconds} onChange={(e) => setDraft((d) => ({ ...d, trimStartSeconds: parseFloat(e.target.value) || 0 }))} />
+            </label>
+            <label className="field">
+              <span>Trim end (s, 0 = no trim)</span>
+              <input type="number" min={0} step={0.1} value={draft.trimEndSeconds} onChange={(e) => setDraft((d) => ({ ...d, trimEndSeconds: parseFloat(e.target.value) || 0 }))} />
+            </label>
+          </div>
+
+          <div style={{ display: 'flex', gap: 16 }}>
+            <ToggleField label="Normalize loudness" checked={draft.normalize} onChange={(v) => setDraft((d) => ({ ...d, normalize: v }))} />
+            <ToggleField label="Loopable" checked={draft.loopable} onChange={(v) => setDraft((d) => ({ ...d, loopable: v }))} />
+          </div>
+
+          <label className="field">
+            <span>Notes</span>
+            <input value={draft.notes ?? ''} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} placeholder="Optional notes about this asset" />
+          </label>
+
+          {saveError && <p className="helper-text" style={{ color: '#ff7070' }}>{saveError}</p>}
+          {status && <p className="helper-text">{status}</p>}
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+            <button type="button" className="secondary-button" onClick={() => setAudioView('library')}>
+              <ArrowLeft size={14} />
+              Back to library
+            </button>
+            <button type="button" className="cta-button" onClick={() => void handleSave()} disabled={isProcessing}>
+              {isProcessing ? 'Processing…' : editingAssetId ? 'Update audio asset' : 'Import & save'}
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="library-grid">
+      <section className="panel stack">
+        <div className="audio-manager-header">
+          <PanelHeader icon={<Music size={18} />} title="Audio library" subtitle="Browse, convert, and manage game audio assets." />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="secondary-button compact-button" onClick={() => void refreshCatalog()} disabled={!backendReady || isLoadingCatalog}>
+              <RefreshCw size={14} />
+              {isLoadingCatalog ? 'Refreshing…' : 'Refresh'}
+            </button>
+            <button type="button" className="cta-button compact-button" onClick={handleNewAsset} disabled={!backendReady}>
+              <Plus size={14} />
+              Import audio
+            </button>
+          </div>
+        </div>
+
+        <label className="field">
+          <span>Search audio</span>
+          <input value={audioSearch} onChange={(e) => setAudioSearch(e.target.value)} placeholder="Search by ID, name, or category" />
+        </label>
+
+        <ToggleField label="Show archived" checked={showArchived} onChange={setShowArchived} helper="Archived assets remain in the catalog until deleted." />
+
+        {!backendReady ? (
+          <p className="helper-text">Start the asset manager to browse saved audio.</p>
+        ) : catalogError ? (
+          <p className="helper-text">{catalogError}</p>
+        ) : filteredAssets.length === 0 ? (
+          <p className="helper-text">No audio assets found. Import one with the button above.</p>
+        ) : (
+          <div className="audio-asset-list">
+            {filteredAssets.map((asset) => (
+              <button
+                key={asset.id}
+                type="button"
+                className={`audio-asset-card${asset.status === 'archived' ? ' archived' : ''}${selectedAsset?.id === asset.id ? ' selected' : ''}`}
+                onClick={() => void handleSelectAsset(asset)}
+              >
+                <div className="audio-asset-card-icon"><Music size={20} /></div>
+                <div className="audio-asset-card-info">
+                  <strong>{asset.name}</strong>
+                  <span>{categoryLabel[asset.category as AudioCategory] ?? asset.category} · {asset.outputFormat.toUpperCase()} · {asset.duration > 0 ? `${asset.duration.toFixed(1)}s` : '—'}</span>
+                  <small>{asset.outputRelativePath}</small>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="panel stack">
+        {selectedAsset ? (
+          <div className="audio-selected-card">
+            <div className="audio-selected-icon"><Music size={36} /></div>
+            <strong style={{ fontSize: 17 }}>{selectedAsset.name}</strong>
+            <span style={{ fontSize: 13, color: '#94a9ea' }}>
+              {categoryLabel[selectedAsset.category as AudioCategory] ?? selectedAsset.category} · {selectedAsset.outputFormat.toUpperCase()}
+              {selectedAsset.duration > 0 ? ` · ${selectedAsset.duration.toFixed(1)}s` : ''}
+              {selectedAsset.loopable ? ' · loop' : ''}
+            </span>
+            <small style={{ fontSize: 12, color: '#5a6a99' }}>{selectedAsset.outputRelativePath}</small>
+
+            {previewUrl && (
+              // eslint-disable-next-line jsx-a11y/media-has-caption
+              <audio controls src={previewUrl} className="audio-player" />
+            )}
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+              <button type="button" className="secondary-button compact-button" onClick={() => handleEditAsset(selectedAsset)}>
+                <FilePenLine size={14} />
+                Edit
+              </button>
+              <button type="button" className="secondary-button compact-button" onClick={() => void handleArchiveToggle(selectedAsset)}>
+                <Archive size={14} />
+                {selectedAsset.status === 'archived' ? 'Unarchive' : 'Archive'}
+              </button>
+              <button type="button" className="secondary-button compact-button" onClick={() => void handleDelete(selectedAsset)} style={{ color: '#ff7070' }}>
+                <Trash2 size={14} />
+                Delete
+              </button>
+            </div>
+
+            {selectedAsset.notes && <p style={{ fontSize: 13, color: '#94a9ea', marginTop: 4 }}>{selectedAsset.notes}</p>}
+          </div>
+        ) : (
+          <p className="helper-text">Select an audio asset from the list to preview and manage it.</p>
+        )}
+      </section>
     </div>
   );
 }

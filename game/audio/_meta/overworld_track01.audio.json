@@ -1,0 +1,25 @@
+{
+  "id": "overworld_track01",
+  "name": "Overworld Track 01",
+  "status": "active",
+  "category": "music",
+  "outputFormat": "opus",
+  "outputRelativePath": "game/audio/music/overworld_track01.opus",
+  "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\audio\\music\\overworld_track01.opus",
+  "metadataRelativePath": "game/audio/_meta/overworld_track01.audio.json",
+  "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\audio\\_meta\\overworld_track01.audio.json",
+  "duration": 248.01,
+  "loopable": false,
+  "normalize": true,
+  "trim": {
+    "startSeconds": 0,
+    "endSeconds": 0
+  },
+  "source": {
+    "name": "23.4s Recording (Mar 7 @ 3_22â¯PM).mp3",
+    "mimeType": "audio/mpeg",
+    "sizeBytes": 6049515
+  },
+  "generatedAt": "2026-03-08T05:22:49.212Z",
+  "notes": ""
+}

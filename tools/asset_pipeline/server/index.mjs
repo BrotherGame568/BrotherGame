@@ -25,6 +25,17 @@ const generatedManifestPath = path.join(assetsRoot, 'MANIFEST.generated.md');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1024 * 1024 * 500 } });
 const sharpInputOptions = { animated: false, limitInputPixels: false };
 
+// Audio asset paths
+const audioRoot = path.join(repoRoot, 'game', 'audio');
+const audioOutputFolders = {
+  music: path.join(audioRoot, 'music'),
+  sfx: path.join(audioRoot, 'sfx'),
+  ambience: path.join(audioRoot, 'ambience'),
+};
+const audioMetaRoot = path.join(audioRoot, '_meta');
+const audioCatalogPath = path.join(audioRoot, 'audio.catalog.json');
+const audioManifestPath = path.join(audioRoot, 'MANIFEST.generated.md');
+
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
@@ -183,6 +194,125 @@ app.delete('/api/asset', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Asset delete failed.' });
+  }
+});
+
+// ─── Audio API routes ────────────────────────────────────────────────────────────
+
+app.get('/api/audio/catalog', async (_req, res) => {
+  const catalog = await readAudioCatalog();
+  res.json(catalog);
+});
+
+app.get('/api/audio/asset-file', async (req, res) => {
+  const relativePath = typeof req.query.path === 'string' ? req.query.path : '';
+  if (!relativePath) { res.status(400).json({ error: 'Missing asset path.' }); return; }
+  const absolutePath = path.resolve(repoRoot, relativePath);
+  if (!absolutePath.startsWith(repoRoot)) { res.status(400).json({ error: 'Invalid asset path.' }); return; }
+  try {
+    await fs.access(absolutePath);
+    res.sendFile(absolutePath);
+  } catch {
+    res.status(404).json({ error: 'Audio file not found.' });
+  }
+});
+
+app.post('/api/audio/process', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) { res.status(400).json({ error: 'Missing file upload.' }); return; }
+    const draft = parseDraft(req.body.draft);
+    const currentAssetId = typeof req.body.currentAssetId === 'string' ? req.body.currentAssetId : null;
+    const existingAsset = currentAssetId ? await findAudioCatalogAsset(currentAssetId) : null;
+    if (currentAssetId && !existingAsset) {
+      res.status(404).json({ error: 'The audio asset being edited no longer exists in the catalog.' });
+      return;
+    }
+    const result = await processAudioAsset(req.file, draft);
+    const metadata = buildAudioPersistedMetadata(draft, req.file, result, existingAsset);
+    await persistAudioArtifacts(metadata, result, existingAsset, currentAssetId);
+    res.json({ ok: true, savedAsset: { outputRelativePath: metadata.outputRelativePath, metadataRelativePath: metadata.metadataRelativePath, duration: result.duration, outputBytes: result.outputBytes } });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Audio processing failed.' });
+  }
+});
+
+app.post('/api/audio/metadata', async (req, res) => {
+  try {
+    const draft = req.body?.draft;
+    const currentAssetId = req.body?.currentAssetId;
+    if (!draft || !currentAssetId) { res.status(400).json({ error: 'Missing payload.' }); return; }
+    const catalog = await readAudioCatalog();
+    const existing = catalog.assets.find((a) => a.id === currentAssetId);
+    if (!existing) { res.status(404).json({ error: 'Audio asset not found.' }); return; }
+    const targetFolder = audioOutputFolders[draft.category] ?? audioOutputFolders.sfx;
+    const newOutputAbsolutePath = path.join(targetFolder, `${draft.assetId}.${existing.outputFormat}`);
+    const newMetadataAbsolutePath = path.join(audioMetaRoot, `${draft.assetId}.audio.json`);
+    const updated = {
+      ...existing,
+      id: draft.assetId,
+      name: draft.displayName,
+      category: draft.category,
+      loopable: !!draft.loopable,
+      normalize: !!draft.normalize,
+      trim: { startSeconds: draft.trimStartSeconds ?? 0, endSeconds: draft.trimEndSeconds ?? 0 },
+      notes: draft.notes ?? '',
+      outputAbsolutePath: newOutputAbsolutePath,
+      outputRelativePath: path.relative(repoRoot, newOutputAbsolutePath).replace(/\\/g, '/'),
+      metadataAbsolutePath: newMetadataAbsolutePath,
+      metadataRelativePath: path.relative(repoRoot, newMetadataAbsolutePath).replace(/\\/g, '/'),
+      generatedAt: new Date().toISOString(),
+    };
+    if (existing.outputAbsolutePath && existing.outputAbsolutePath !== updated.outputAbsolutePath) {
+      await fs.mkdir(path.dirname(updated.outputAbsolutePath), { recursive: true });
+      await fs.rename(existing.outputAbsolutePath, updated.outputAbsolutePath).catch(() => {});
+    }
+    if (existing.metadataAbsolutePath && existing.metadataAbsolutePath !== updated.metadataAbsolutePath) {
+      await fs.rm(existing.metadataAbsolutePath, { force: true }).catch(() => {});
+    }
+    await fs.mkdir(audioMetaRoot, { recursive: true });
+    await fs.writeFile(updated.metadataAbsolutePath, JSON.stringify(updated, null, 2));
+    await updateAudioCatalogAsset(currentAssetId, updated);
+    res.json({ ok: true, savedAsset: { outputRelativePath: updated.outputRelativePath, metadataRelativePath: updated.metadataRelativePath, duration: updated.duration, outputBytes: 0 } });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Audio metadata update failed.' });
+  }
+});
+
+app.post('/api/audio/asset-status', async (req, res) => {
+  try {
+    const assetId = req.body?.assetId;
+    const shouldArchive = !!req.body?.archived;
+    if (!assetId) { res.status(400).json({ error: 'Missing asset identifier.' }); return; }
+    const catalog = await readAudioCatalog();
+    const existing = catalog.assets.find((a) => a.id === assetId);
+    if (!existing) { res.status(404).json({ error: 'Audio asset not found.' }); return; }
+    const updated = { ...existing, status: shouldArchive ? 'archived' : 'active', archivedAt: shouldArchive ? new Date().toISOString() : undefined };
+    await updateAudioCatalogAsset(assetId, updated);
+    res.json({ ok: true, asset: updated });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Audio status update failed.' });
+  }
+});
+
+app.delete('/api/audio/asset', async (req, res) => {
+  try {
+    const assetId = typeof req.query.assetId === 'string' ? req.query.assetId : '';
+    if (!assetId) { res.status(400).json({ error: 'Missing asset identifier.' }); return; }
+    const catalog = await readAudioCatalog();
+    const existing = catalog.assets.find((a) => a.id === assetId);
+    if (!existing) { res.status(404).json({ error: 'Audio asset not found.' }); return; }
+    await Promise.allSettled([
+      fs.rm(existing.outputAbsolutePath, { force: true }),
+      fs.rm(existing.metadataAbsolutePath, { force: true }),
+    ]);
+    await removeAudioCatalogAsset(assetId);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Audio delete failed.' });
   }
 });
 
@@ -777,4 +907,145 @@ function sampleFrameNames(frameNames, targetFrameCount, mode) {
     sampled.push(frameNames[sourceIndex]);
   }
   return sampled;
+}
+
+// ─── Audio processing ───────────────────────────────────────────────────────────────
+
+function probeAudioDuration(filePath) {
+  return new Promise((resolve) => {
+    const child = spawn(ffmpegPath, ['-i', filePath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stderr.on('data', (chunk) => { out += chunk.toString(); });
+    child.on('close', () => {
+      const match = /Duration:\s*(\d+):(\d+):(\d+\.?\d*)/i.exec(out);
+      if (!match) { resolve(0); return; }
+      resolve(parseFloat(match[1]) * 3600 + parseFloat(match[2]) * 60 + parseFloat(match[3]));
+    });
+    child.on('error', () => resolve(0));
+  });
+}
+
+async function processAudioAsset(file, draft) {
+  if (!ffmpegPath) throw new Error('ffmpeg-static is unavailable. Reinstall dependencies to enable audio conversion.');
+  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'brothergame-audio-'));
+  const ext = path.extname(file.originalname) || '.tmp';
+  const inputPath = path.join(workDir, `source${ext}`);
+  await fs.writeFile(inputPath, file.buffer);
+  const format = draft.outputFormat ?? (draft.category === 'sfx' ? 'wav' : 'opus');
+  const outputPath = path.join(workDir, `output.${format}`);
+  const args = ['-y'];
+  if ((draft.trimStartSeconds ?? 0) > 0) args.push('-ss', `${draft.trimStartSeconds}`);
+  args.push('-i', inputPath);
+  if ((draft.trimEndSeconds ?? 0) > (draft.trimStartSeconds ?? 0)) args.push('-to', `${draft.trimEndSeconds}`);
+  if (format === 'wav') {
+    args.push('-c:a', 'pcm_s16le', '-ar', '44100');
+  } else if (format === 'opus') {
+    args.push('-c:a', 'libopus', '-b:a', '128k', '-ar', '48000');
+  } else {
+    args.push('-c:a', 'libvorbis', '-q:a', '6', '-ar', '44100');
+  }
+  if (draft.normalize) args.push('-af', 'loudnorm');
+  args.push(outputPath);
+  await runCommand(ffmpegPath, args, workDir);
+  const outputBuffer = await fs.readFile(outputPath);
+  const duration = await probeAudioDuration(outputPath);
+  await fs.rm(workDir, { recursive: true, force: true });
+  return { outputBuffer, outputFormat: format, outputBytes: outputBuffer.byteLength, duration };
+}
+
+function buildAudioPersistedMetadata(draft, file, result, existingAsset) {
+  const folder = audioOutputFolders[draft.category] ?? audioOutputFolders.sfx;
+  const outputAbsolutePath = path.join(folder, `${draft.assetId}.${result.outputFormat}`);
+  const metadataAbsolutePath = path.join(audioMetaRoot, `${draft.assetId}.audio.json`);
+  return {
+    id: draft.assetId,
+    name: draft.displayName,
+    status: existingAsset?.status ?? 'active',
+    category: draft.category,
+    outputFormat: result.outputFormat,
+    outputRelativePath: path.relative(repoRoot, outputAbsolutePath).replace(/\\/g, '/'),
+    outputAbsolutePath,
+    metadataRelativePath: path.relative(repoRoot, metadataAbsolutePath).replace(/\\/g, '/'),
+    metadataAbsolutePath,
+    duration: result.duration,
+    loopable: !!draft.loopable,
+    normalize: !!draft.normalize,
+    trim: { startSeconds: draft.trimStartSeconds ?? 0, endSeconds: draft.trimEndSeconds ?? 0 },
+    source: { name: file.originalname, mimeType: file.mimetype, sizeBytes: file.size },
+    generatedAt: new Date().toISOString(),
+    archivedAt: existingAsset?.status === 'archived' ? existingAsset.archivedAt : undefined,
+    notes: draft.notes ?? '',
+  };
+}
+
+async function persistAudioArtifacts(metadata, result, existingAsset, previousAssetId) {
+  await Promise.all([
+    fs.mkdir(path.dirname(metadata.outputAbsolutePath), { recursive: true }),
+    fs.mkdir(path.dirname(metadata.metadataAbsolutePath), { recursive: true }),
+  ]);
+  await fs.writeFile(metadata.outputAbsolutePath, result.outputBuffer);
+  await fs.writeFile(metadata.metadataAbsolutePath, JSON.stringify(metadata, null, 2));
+  if (existingAsset) {
+    if (existingAsset.outputAbsolutePath && existingAsset.outputAbsolutePath !== metadata.outputAbsolutePath) {
+      await fs.rm(existingAsset.outputAbsolutePath, { force: true }).catch(() => {});
+    }
+    if (existingAsset.metadataAbsolutePath && existingAsset.metadataAbsolutePath !== metadata.metadataAbsolutePath) {
+      await fs.rm(existingAsset.metadataAbsolutePath, { force: true }).catch(() => {});
+    }
+  }
+  await updateAudioCatalogAsset(previousAssetId ?? metadata.id, metadata);
+}
+
+async function readAudioCatalog() {
+  try {
+    const raw = await fs.readFile(audioCatalogPath, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return { generatedAt: new Date().toISOString(), assets: [] };
+  }
+}
+
+async function updateAudioCatalogAsset(previousAssetId, metadata) {
+  if (previousAssetId && previousAssetId !== metadata.id) {
+    const oldPath = path.join(audioMetaRoot, `${previousAssetId}.audio.json`);
+    if (oldPath !== metadata.metadataAbsolutePath) await fs.rm(oldPath, { force: true }).catch(() => {});
+  }
+  const catalog = await readAudioCatalog();
+  const filtered = catalog.assets.filter((a) => a.id !== previousAssetId && a.id !== metadata.id);
+  filtered.push(metadata);
+  filtered.sort((a, b) => a.id.localeCompare(b.id));
+  const next = { generatedAt: new Date().toISOString(), assets: filtered };
+  await fs.mkdir(path.dirname(audioCatalogPath), { recursive: true });
+  await fs.writeFile(audioCatalogPath, JSON.stringify(next, null, 2));
+  await fs.writeFile(audioManifestPath, buildAudioGeneratedManifest(next.assets));
+}
+
+async function removeAudioCatalogAsset(assetId) {
+  const catalog = await readAudioCatalog();
+  const filtered = catalog.assets.filter((a) => a.id !== assetId);
+  const next = { generatedAt: new Date().toISOString(), assets: filtered };
+  await fs.writeFile(audioCatalogPath, JSON.stringify(next, null, 2));
+  await fs.writeFile(audioManifestPath, buildAudioGeneratedManifest(next.assets));
+}
+
+async function findAudioCatalogAsset(assetId) {
+  const catalog = await readAudioCatalog();
+  return catalog.assets.find((a) => a.id === assetId) ?? null;
+}
+
+function buildAudioGeneratedManifest(assets) {
+  const rows = assets.map((a) => {
+    const dur = a.duration > 0 ? `${a.duration.toFixed(1)}s` : '—';
+    return `| \`${a.id}\` | ${a.category} | \`${a.outputRelativePath}\` | ${dur} | ${a.outputFormat} | ${a.loopable ? 'loop' : 'one-shot'} | ${a.status ?? 'active'} |`;
+  });
+  return [
+    '# Generated Audio Manifest',
+    '',
+    '> This file is generated by the asset manager audio tab. Edit metadata through the tool, not by hand.',
+    '',
+    '| ID | Category | Path | Duration | Format | Loop | Status |',
+    '|---|---|---|---|---|---|---|',
+    ...rows,
+    '',
+  ].join('\n');
 }

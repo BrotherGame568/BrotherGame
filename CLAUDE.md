@@ -103,6 +103,61 @@ When working with visual assets, follow these rules:
 
 ---
 
+## Audio System
+
+The real audio implementation lives in `game/core/services/PhaserAudioService.ts` (🟡 partially implemented — music fade in/out works; SFX stubs are Phase 1 no-ops).
+
+### How music is wired into a scene
+
+Every scene that plays music must follow this three-step pattern:
+
+```typescript
+// 1. preload() — register scene as Phaser audio host; queues track files into loader
+this.audioService.attachScene(this);
+
+// 2. end of create() — start the track with the desired fade-in
+this.audioService.setAmbience('music_overworld_01', 2500);
+
+// 3. end of create() — fade out when the scene shuts down
+this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+  this.audioService.stopAll(1500); // smooth on scene switch
+});
+```
+
+### Fade duration conventions
+
+| Situation | Duration | Method |
+|---|---|---|
+| Scene starts / track begins naturally | 2500 ms | `setAmbience(trackId, 2500)` (default) |
+| Leaving a scene (mission launch, city enter) | 1500 ms | `stopAll(1500)` before `scene.start()` |
+| Natural end / scene destroyed without a successor | 2500 ms | `stopAll()` (default) |
+
+Always call `stopAll(1500)` **before** `this.scene.start(...)` — do not rely solely on the SHUTDOWN listener when you know the transition target.
+
+### Adding a new music track
+
+1. Place the file in `game/audio/music/` (Opus preferred for music, WAV for SFX).
+2. Add a Vite `?url` import and an entry to `TRACK_URLS` in `PhaserAudioService.ts`:
+   ```typescript
+   import myNewTrackUrl from '@audio/music/my_track.opus?url';
+   const TRACK_URLS = {
+     music_overworld_01: overworldTrack01Url,
+     music_my_scene:     myNewTrackUrl,   // ← add here
+   };
+   ```
+3. Add the track ID to the **Music Tracks** table in `game/audio/EVENTS.md` with status `active`.
+4. Call `this.audioService.setAmbience('music_my_scene')` from the relevant scene's `create()`.
+
+### Track IDs vs file names
+
+Track IDs (strings passed to `setAmbience`) are defined in `PhaserAudioService.ts`'s `TRACK_URLS` map and documented in `game/audio/EVENTS.md`.  **Never** reference file paths directly in scene code — always use the stable track ID string.
+
+### Audio Manager tool
+
+The asset pipeline at `tools/asset_pipeline/` has an **Audio tab** (port 4174 frontend, 4185 backend) for converting and cataloguing audio files.  Converted files land in `game/audio/{music,sfx,ambience}/` with per-asset metadata in `game/audio/_meta/` and a generated summary at `game/audio/MANIFEST.generated.md`.
+
+---
+
 ## File You Must Read
 
 Before working on any domain, read:

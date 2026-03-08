@@ -1,4 +1,4 @@
-import type { AssetCatalogDocument, AssetDraft, PersistedAssetRecord } from '../types';
+import type { AssetCatalogDocument, AssetDraft, AudioCatalogDocument, AudioDraft, PersistedAssetRecord, PersistedAudioRecord } from '../types';
 
 export interface SavedAssetResult {
   outputRelativePath: string;
@@ -100,4 +100,70 @@ export async function processAssetInWorkspace(file: File, draft: AssetDraft, cur
   }
 
   return payload.savedAsset;
+}
+
+// ─── Audio API ───────────────────────────────────────────────────────────────
+
+export interface AudioSavedResult {
+  outputRelativePath: string;
+  metadataRelativePath: string;
+  duration: number;
+  outputBytes: number;
+}
+
+export async function fetchAudioCatalog(): Promise<AudioCatalogDocument> {
+  const response = await fetch('/api/audio/catalog');
+  if (!response.ok) throw new Error('Unable to load the audio catalog.');
+  return response.json() as Promise<AudioCatalogDocument>;
+}
+
+export async function fetchWorkspaceAudioFile(relativePath: string): Promise<Blob> {
+  const response = await fetch(`/api/audio/asset-file?path=${encodeURIComponent(relativePath)}`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({ error: 'Unable to load audio file.' }));
+    throw new Error((payload as { error?: string }).error ?? 'Unable to load audio file.');
+  }
+  return response.blob();
+}
+
+export async function processAudioInWorkspace(file: File, draft: AudioDraft, currentAssetId?: string | null): Promise<AudioSavedResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('draft', JSON.stringify(draft));
+  if (currentAssetId) formData.append('currentAssetId', currentAssetId);
+
+  const response = await fetch('/api/audio/process', { method: 'POST', body: formData });
+  const payload = await response.json() as { error?: string; savedAsset?: AudioSavedResult };
+  if (!response.ok || !payload.savedAsset) throw new Error(payload.error ?? 'Audio processing failed.');
+  return payload.savedAsset;
+}
+
+export async function updateAudioMetadataInWorkspace(draft: AudioDraft, currentAssetId: string): Promise<AudioSavedResult> {
+  const response = await fetch('/api/audio/metadata', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ draft, currentAssetId }),
+  });
+  const payload = await response.json() as { error?: string; savedAsset?: AudioSavedResult };
+  if (!response.ok || !payload.savedAsset) throw new Error(payload.error ?? 'Audio metadata update failed.');
+  return payload.savedAsset;
+}
+
+export async function updateAudioArchiveStatus(assetId: string, archived: boolean): Promise<PersistedAudioRecord> {
+  const response = await fetch('/api/audio/asset-status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assetId, archived }),
+  });
+  const payload = await response.json() as { error?: string; asset?: PersistedAudioRecord };
+  if (!response.ok || !payload.asset) throw new Error(payload.error ?? 'Audio archive update failed.');
+  return payload.asset;
+}
+
+export async function deleteWorkspaceAudio(assetId: string): Promise<void> {
+  const response = await fetch(`/api/audio/asset?assetId=${encodeURIComponent(assetId)}`, { method: 'DELETE' });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({ error: 'Audio delete failed.' }));
+    throw new Error((payload as { error?: string }).error ?? 'Audio delete failed.');
+  }
 }

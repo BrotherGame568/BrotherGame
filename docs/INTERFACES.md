@@ -40,7 +40,7 @@ Located in `game/core/services/`
 
 | Interface | File | Stub File | Status | Owner Domain |
 |---|---|---|---|---|
-| `IAudioService` | `IAudioService.ts` | `AudioServiceStub.ts` | 🔄 | Architecture |
+| `IAudioService` | `IAudioService.ts` | `AudioServiceStub.ts` | 🟡 | Architecture |
 | `ISaveService` | `ISaveService.ts` | `SaveServiceStub.ts` | 🔄 | Architecture |
 
 ---
@@ -96,7 +96,7 @@ Track all agreed interface changes here. Open a Cross-Domain Interface issue for
 
 | Date | Interface Changed | Change Summary | Issue # | Approved By |
 |---|---|---|---|---|
-| _(none yet)_ | | | | |
+| 2026-03-07 | `IAudioService` | Added `attachScene(scene)`; `setAmbience` and `stopAll` gain optional fade-duration param; real impl `PhaserAudioService` wired into `main.ts` | — | @AndrewMart |
 
 ---
 

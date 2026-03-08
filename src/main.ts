@@ -25,7 +25,7 @@ import { ReachSystem }            from '@systems/ReachSystem';
 
 // ── Stubs for systems not yet implemented ─────────────────────
 import { TechTreeSystemStub }      from '@systems/ITechTreeSystem';
-import { AudioServiceStub }        from '@services/IAudioService';
+import { PhaserAudioService }      from '@services/PhaserAudioService';
 import { SaveServiceStub }         from '@services/ISaveService';
 
 // ── Game state seed ───────────────────────────────────────────
@@ -86,7 +86,7 @@ class BootScene extends Phaser.Scene {
       tradewindSystem: new TradewindSystem(gsm),
       reachSystem:     new ReachSystem(gsm),
       techTreeSystem:  new TechTreeSystemStub(gsm),
-      audioService:    new AudioServiceStub(),
+      audioService:    new PhaserAudioService(),
       saveService:     new SaveServiceStub(),
     };
 
