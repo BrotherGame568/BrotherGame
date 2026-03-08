@@ -24,7 +24,7 @@ import type { IAudioService } from '@services/IAudioService';
 import type { MissionContext, MissionResult } from '@data/MissionContext';
 import type { ResourceSurface } from '@data/HexTile';
 import type { ServiceBundle } from '../../src/main';
-import { Enemy, SmallEnemy, MediumEnemy, LargeEnemy, type PendingProjectile } from '../entities/Enemy';
+import { Enemy, SmallEnemy, MediumEnemy, LargeEnemy, type EnemyVisualConfig, type PendingProjectile } from '../entities/Enemy';
 import { type WeaponDef, WEAPONS } from '../entities/Weapon';
 
 export const MISSION_SCENE_KEY = 'MissionScene';
@@ -40,6 +40,25 @@ const COL_W = WORLD_W / TERRAIN_COLS;  // Width of each terrain column (50px)
 
 /** Tier → pickup colour. */
 const TIER_COLORS: Record<number, number> = { 1: 0x66ff66, 2: 0x6699ff, 3: 0xcc66ff };
+
+interface AssetMetadataRecord {
+  displaySize?: {
+    width?: number;
+    height?: number;
+  };
+  spritesheet?: {
+    origin?: {
+      x?: number;
+      y?: number;
+    };
+    collisionBox?: {
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+    };
+  };
+}
 
 export class MissionScene extends Phaser.Scene {
   private gsm!: IGameStateManager;
@@ -104,20 +123,25 @@ export class MissionScene extends Phaser.Scene {
   }
 
   preload(): void {
-    // RootWalker walk cycle — 6×6 spritesheet, 466×466 px per frame
-    // Path is relative to publicDir (game/assets/)
-    this.load.spritesheet('rootwalker',
-      'animations/RootWalker-Walk-cycle.webp',
+    // Runtime asset paths are relative to publicDir (game/assets/).
+    this.load.spritesheet('rootwalker_walk_cycle',
+      'animations/rootwalker_walk_cycle.webp',
       { frameWidth: 466, frameHeight: 466 },
     );
+    this.load.spritesheet('hound_walk_cycle',
+      'animations/hound_walk_cycle.webp',
+      { frameWidth: 213, frameHeight: 120 },
+    );
+    this.load.json('rootwalker_walk_cycle_meta', '_meta/rootwalker_walk_cycle.asset.json');
+    this.load.json('hound_walk_cycle_meta', '_meta/hound_walk_cycle.asset.json');
   }
 
   create(): void {
-    // ── RootWalker animations ──────────────────────────────────
+    // ── Enemy spritesheet animations ───────────────────────────
     if (!this.anims.exists('rootwalker_walk')) {
       this.anims.create({
         key: 'rootwalker_walk',
-        frames: this.anims.generateFrameNumbers('rootwalker', { start: 0, end: 35 }),
+        frames: this.anims.generateFrameNumbers('rootwalker_walk_cycle', { start: 0, end: 35 }),
         frameRate: 12,
         repeat: -1,
       });
@@ -125,7 +149,23 @@ export class MissionScene extends Phaser.Scene {
     if (!this.anims.exists('rootwalker_idle')) {
       this.anims.create({
         key: 'rootwalker_idle',
-        frames: [{ key: 'rootwalker', frame: 0 }],
+        frames: [{ key: 'rootwalker_walk_cycle', frame: 0 }],
+        frameRate: 1,
+        repeat: -1,
+      });
+    }
+    if (!this.anims.exists('hound_walk')) {
+      this.anims.create({
+        key: 'hound_walk',
+        frames: this.anims.generateFrameNumbers('hound_walk_cycle', { start: 0, end: 35 }),
+        frameRate: 12,
+        repeat: -1,
+      });
+    }
+    if (!this.anims.exists('hound_idle')) {
+      this.anims.create({
+        key: 'hound_idle',
+        frames: [{ key: 'hound_walk_cycle', frame: 0 }],
         frameRate: 1,
         repeat: -1,
       });
@@ -553,6 +593,8 @@ export class MissionScene extends Phaser.Scene {
   private _spawnEnemies(): void {
     const danger = this.context.dangerLevel;
     const gt = this._getGroundYInterp.bind(this);
+    const largeEnemyVisual = this._getEnemyVisualConfig('rootwalker_walk_cycle_meta');
+    const mediumEnemyVisual = this._getEnemyVisualConfig('hound_walk_cycle_meta');
 
     // Scale counts with danger level (1–5)
     const smallCount  = Math.min(danger + 1, 5);
@@ -564,16 +606,57 @@ export class MissionScene extends Phaser.Scene {
     const spacing = (WORLD_W - 400) / (total + 1);
     let slot = 0;
 
-    const place = (EnemyType: new (s: Phaser.Scene, c: { x: number; patrolRange: number }, g: (x: number) => number) => Enemy) => {
+    const place = (
+      EnemyType: new (s: Phaser.Scene, c: { x: number; patrolRange: number; visual?: EnemyVisualConfig }, g: (x: number) => number) => Enemy,
+      visual?: EnemyVisualConfig,
+    ) => {
       const x = 200 + (slot + 1) * spacing + (this._pseudoRandom(slot * 13 + 7) - 0.5) * 80;
       const patrolRange = 80 + this._pseudoRandom(slot * 31) * 80;
-      this.enemies.push(new EnemyType(this, { x, patrolRange }, gt));
+      this.enemies.push(new EnemyType(this, { x, patrolRange, visual }, gt));
       slot++;
     };
 
     for (let i = 0; i < smallCount;  i++) place(SmallEnemy);
-    for (let i = 0; i < mediumCount; i++) place(MediumEnemy);
-    for (let i = 0; i < largeCount;  i++) place(LargeEnemy);
+    for (let i = 0; i < mediumCount; i++) place(MediumEnemy, mediumEnemyVisual);
+    for (let i = 0; i < largeCount;  i++) place(LargeEnemy, largeEnemyVisual);
+  }
+
+  private _getEnemyVisualConfig(cacheKey: string): EnemyVisualConfig | undefined {
+    const metadata = this.cache.json.get(cacheKey) as AssetMetadataRecord | undefined;
+    const displayWidth = metadata?.displaySize?.width;
+    const displayHeight = metadata?.displaySize?.height;
+    const originX = metadata?.spritesheet?.origin?.x;
+    const originY = metadata?.spritesheet?.origin?.y;
+    const collisionBox = metadata?.spritesheet?.collisionBox;
+
+    if (
+      !displayWidth
+      || !displayHeight
+      || originX === undefined
+      || originY === undefined
+      || !collisionBox
+      || collisionBox.x === undefined
+      || collisionBox.y === undefined
+      || collisionBox.width === undefined
+      || collisionBox.height === undefined
+    ) {
+      return undefined;
+    }
+
+    return {
+      displayWidth,
+      displayHeight,
+      origin: {
+        x: originX,
+        y: originY,
+      },
+      collisionBox: {
+        x: collisionBox.x,
+        y: collisionBox.y,
+        width: collisionBox.width,
+        height: collisionBox.height,
+      },
+    };
   }
 
   // ── Combat ─────────────────────────────────────────────

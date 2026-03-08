@@ -22,6 +22,22 @@ export interface EnemyConfig {
   x: number;
   patrolRange: number;
   tint?: number;
+  visual?: EnemyVisualConfig;
+}
+
+export interface EnemyVisualConfig {
+  displayWidth: number;
+  displayHeight: number;
+  origin: {
+    x: number;
+    y: number;
+  };
+  collisionBox: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 export interface EnemyStats {
@@ -70,6 +86,10 @@ export abstract class Enemy {
   private readonly patrolLeft: number;
   private readonly patrolRight: number;
   private readonly getGroundY: (worldX: number) => number;
+  private readonly visual: EnemyVisualConfig;
+  private readonly groundOffsetX: number;
+  private readonly groundOffsetY: number;
+  private readonly bodyGroundOffsetY: number;
 
   // Knockback
   private knockbackUntil = 0;
@@ -103,6 +123,20 @@ export abstract class Enemy {
     this.patrolLeft  = config.x - config.patrolRange;
     this.patrolRight = config.x + config.patrolRange;
     this.hp = stats.maxHp;
+    this.visual = config.visual ?? {
+      displayWidth: stats.spriteW,
+      displayHeight: stats.spriteH,
+      origin: { x: 0.5, y: 1 },
+      collisionBox: {
+        x: Math.round((stats.spriteW - stats.bodyW) / 2),
+        y: Math.round(stats.spriteH - stats.bodyH),
+        width: stats.bodyW,
+        height: stats.bodyH,
+      },
+    };
+    this.groundOffsetX = (0.5 - this.visual.origin.x) * this.visual.displayWidth;
+    this.groundOffsetY = (1 - this.visual.origin.y) * this.visual.displayHeight;
+    this.bodyGroundOffsetY = this.visual.collisionBox.y + this.visual.collisionBox.height - (this.visual.origin.y * this.visual.displayHeight);
 
     if (!scene.textures.exists(stats.textureKey)) {
       const gfx = scene.add.graphics();
@@ -112,38 +146,42 @@ export abstract class Enemy {
     }
 
     const groundY = getGroundY(config.x);
-    this.sprite = scene.physics.add.sprite(config.x, groundY, stats.textureKey);
-    this.sprite.setOrigin(0.5, 1);
+  this.sprite = scene.physics.add.sprite(config.x + this.groundOffsetX, groundY + this.groundOffsetY, stats.textureKey);
+    this.sprite.setDisplaySize(this.visual.displayWidth, this.visual.displayHeight);
+  this.sprite.setOrigin(0.5, 1);
     this.sprite.setCollideWorldBounds(true);
 
     if (config.tint !== undefined) {
       this.sprite.setTint(config.tint);
     }
 
-    const offsetX = (stats.spriteW - stats.bodyW) / 2;
-    const offsetY = stats.spriteH - stats.bodyH;
-    this.sprite.body!.setSize(stats.bodyW, stats.bodyH, false);
-    this.sprite.body!.setOffset(offsetX, offsetY);
-    this.sprite.body!.setGravityY(1400);
+    const body = this.sprite.body as Phaser.Physics.Arcade.Body;
+    body.setSize(this.visual.collisionBox.width, this.visual.collisionBox.height, false);
+    body.setOffset(this.visual.collisionBox.x, this.visual.collisionBox.y);
+    body.setGravityY(1400);
+    body.updateFromGameObject();
 
     this.hpBar = scene.add.graphics();
   }
 
   // ── Per-frame update ─────────────────────────────────────────
   update(heroX: number, _heroY: number): void {
-    const body    = this.sprite.body!;
+    const body    = this.sprite.body as Phaser.Physics.Arcade.Body;
     const groundY = this.getGroundY(this.sprite.x);
+    const groundedSpriteY = groundY + this.groundOffsetY;
 
     // Terrain following
-    if (!this.isGrounded && body.velocity.y >= 0 && this.sprite.y >= groundY) {
+    if (!this.isGrounded && body.velocity.y >= 0 && this.sprite.y >= groundedSpriteY - 1) {
       this.isGrounded = true;
     }
-    if (this.isGrounded && (body.velocity.y < -50 || this.sprite.y < groundY - 4)) {
+    if (this.isGrounded && (body.velocity.y < -50 || this.sprite.y < groundedSpriteY - 4)) {
       this.isGrounded = false;
     }
     if (this.isGrounded && !body.blocked.down) {
-      body.y = groundY - body.height;
+      this.sprite.y = groundedSpriteY;
+      body.y = groundY - body.height + this.bodyGroundOffsetY;
       body.prev.y = body.y;
+      body.prevFrame.y = body.y;
       body.velocity.y = 0;
     }
 
@@ -409,7 +447,7 @@ export class MediumEnemy extends Enemy {
     getGroundY: (worldX: number) => number,
   ) {
     super(scene, config, getGroundY, {
-      textureKey: 'enemy_medium',
+      textureKey: 'hound_walk_cycle',
       maxHp:      5,
       moveSpeed:  55,
       spriteW:    42,
@@ -423,6 +461,8 @@ export class MediumEnemy extends Enemy {
       attackCooldown:    2600,
       attackDamage:      2,
     });
+
+    this.sprite.play('hound_idle');
   }
 
   protected _drawSprite(gfx: Phaser.GameObjects.Graphics, cx: number, bottom: number): void {
@@ -448,6 +488,16 @@ export class MediumEnemy extends Enemy {
     gfx.strokeRoundedRect(cx - 13, bottom - 42, 26, 28, 4);
     gfx.strokeRoundedRect(cx - 10, bottom - 58, 20, 18, 5);
   }
+
+  override update(heroX: number, heroY: number): void {
+    super.update(heroX, heroY);
+    const velX = this.sprite.body!.velocity.x;
+    if (velX !== 0) {
+      this.sprite.play('hound_walk', true);
+    } else {
+      this.sprite.play('hound_idle', true);
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -460,8 +510,8 @@ export class LargeEnemy extends Enemy {
     getGroundY: (worldX: number) => number,
   ) {
     super(scene, config, getGroundY, {
-      // 'rootwalker' spritesheet must be loaded in the host scene's preload()
-      textureKey: 'rootwalker',
+      // 'rootwalker_walk_cycle' spritesheet must be loaded in the host scene's preload()
+      textureKey: 'rootwalker_walk_cycle',
       maxHp:      12,
       moveSpeed:  35,
       spriteW:    150,
@@ -475,14 +525,6 @@ export class LargeEnemy extends Enemy {
       attackCooldown:    3200,
       attackDamage:      2,
     });
-
-    // origin stays (0.5, 1) — base class terrain-follow relies on it.
-    // Display as a 150×150 square.
-    this.sprite.setDisplaySize(150, 150);
-    // To raise/lower the visual relative to groundY, adjust spriteH in the stats
-    // above (NOT here). After the terrain snap, sprite.y = groundY + displayH - spriteH.
-    // spriteH = 150 → display bottom sits exactly at groundY (roots on the ground).
-    // spriteH = 170 → display bottom sits 20 px above groundY (lifts the character up).
 
     // Start on idle immediately
     this.sprite.play('rootwalker_idle');
