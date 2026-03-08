@@ -29,10 +29,10 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     id:            'sword',
     name:          'Sword',
     damage:        1,
-    range:         85,
+    range:         115,
     arcDeg:        70,
-    swingDuration: 200,
-    cooldown:      380,
+    swingDuration: 120,
+    cooldown:      280,
     color:         0xaaccff,
   },
   axe: {

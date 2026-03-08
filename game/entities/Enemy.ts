@@ -95,6 +95,10 @@ export abstract class Enemy {
   private knockbackUntil = 0;
   private knockbackVelX  = 0;
 
+  // HP bar cache — avoid redrawing when nothing changed
+  private lastHpDrawn = -1;
+  private lastHpBarX  = NaN;
+
   // Attack state machine
   private attackState: AttackState = 'patrol';
   private attackStateUntil = 0;
@@ -340,7 +344,11 @@ export abstract class Enemy {
 
   // ── HP bar ───────────────────────────────────────────────────
   private _drawHpBar(): void {
-    const sx   = this.sprite.x;
+    const sx = this.sprite.x;
+    if (this.hp === this.lastHpDrawn && sx === this.lastHpBarX) return;
+    this.lastHpDrawn = this.hp;
+    this.lastHpBarX  = sx;
+
     const sy   = this.sprite.y - this.stats.bodyH - 6;
     const barW = Math.max(this.stats.bodyW, 24);
     const pct  = this.hp / this.stats.maxHp;
@@ -356,13 +364,15 @@ export abstract class Enemy {
   // ── Combat API ───────────────────────────────────────────────
   takeDamage(amount: number): void {
     this.hp = Math.max(0, this.hp - amount);
+    this.sprite.setTint(0xffffff);
+    this.scene.time.delayedCall(80, () => { this.sprite.clearTint(); });
   }
 
   /** Push the enemy away. dirX: 1 = push right, -1 = push left. */
   knockback(dirX: 1 | -1): void {
-    this.knockbackUntil = this.scene.time.now + 200;
-    this.knockbackVelX  = dirX * 280;
-    this.sprite.body!.setVelocityY(-200);
+    this.knockbackUntil = this.scene.time.now + 300;
+    this.knockbackVelX  = dirX * 480;
+    this.sprite.body!.setVelocityY(-280);
     this.isGrounded = false;
     this.sprite.setAlpha(0.35);
     this.scene.time.delayedCall(120, () => { this.sprite.setAlpha(1); });
@@ -375,7 +385,8 @@ export abstract class Enemy {
   }
 
   get centerY(): number {
-    return this.sprite.y - this.stats.bodyH / 2;
+    const body = this.sprite.body as Phaser.Physics.Arcade.Body;
+    return body.y + body.height / 2;
   }
 
   /** Returns higher damage when mid-dash so the lunge hurts more than a brush. */
@@ -388,7 +399,13 @@ export abstract class Enemy {
   destroy(): void {
     this._clearTelegraph();
     this.hpBar.destroy();
-    this.sprite.destroy();
+    // Fade out before destroying the sprite
+    this.scene.tweens.add({
+      targets: this.sprite,
+      alpha: 0,
+      duration: 150,
+      onComplete: () => { this.sprite.destroy(); },
+    });
   }
 }
 
@@ -440,7 +457,7 @@ export class MediumEnemy extends Enemy {
   ) {
     super(scene, config, getGroundY, {
       textureKey: 'hound_walk_cycle',
-      maxHp:      5,
+      maxHp:      3,
       moveSpeed:  55,
       spriteW:    42,
       spriteH:    58,
@@ -504,7 +521,7 @@ export class LargeEnemy extends Enemy {
     super(scene, config, getGroundY, {
       // 'rootwalker_walk_cycle' spritesheet must be loaded in the host scene's preload()
       textureKey: 'rootwalker_walk_cycle',
-      maxHp:      12,
+      maxHp:      4,
       moveSpeed:  35,
       spriteW:    150,
       spriteH:    400,

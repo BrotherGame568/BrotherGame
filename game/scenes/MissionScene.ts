@@ -42,6 +42,10 @@ const COL_W = WORLD_W / TERRAIN_COLS;  // Width of each terrain column (50px)
 const TIER_COLORS: Record<number, number> = { 1: 0x66ff66, 2: 0x6699ff, 3: 0xcc66ff };
 
 interface AssetMetadataRecord {
+  exportSize?: {
+    width?: number;
+    height?: number;
+  };
   displaySize?: {
     width?: number;
     height?: number;
@@ -92,12 +96,20 @@ export class MissionScene extends Phaser.Scene {
   private attackCooldownUntil = 0;
   private heroFacing: 1 | -1 = 1;
   private swingGfx: Phaser.GameObjects.Graphics | null = null;
+  private activeSwing: {
+    angle: number; arcHalf: number; startA: number; sweepA: number;
+    range: number; damage: number; hx: number; hy: number;
+    startTime: number; expiresAt: number; hit: Set<Enemy>;
+  } | null = null;
   private wasd!: Record<'W' | 'A' | 'S' | 'D', Phaser.Input.Keyboard.Key>;
 
   // Hero HP
   private heroHp     = 10;
   private heroMaxHp  = 10;
   private heroInvincibleUntil = 0;
+  private heroKnockbackUntil = 0;
+  private heroSwingUntil = 0;
+  private heroHpDrawn = -1;
   private heroHpGfx!: Phaser.GameObjects.Graphics;
 
   // Projectiles (spawned by ranged enemies)
@@ -256,7 +268,12 @@ export class MissionScene extends Phaser.Scene {
     // ── Collisions ────────────────────────────────────────
     // Terrain traversal is handled manually in update() via _getGroundYInterp(),
     // so groundGroup needs no collider. platformGroup still uses physics.
-    this.physics.add.collider(this.hero, this.platformGroup);
+    this.physics.add.collider(this.hero, this.platformGroup, undefined, (hero, platform) => {
+      const heroBody = (hero as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody).body!;
+      const platBody = (platform as Phaser.GameObjects.Zone).body as Phaser.Physics.Arcade.StaticBody;
+      // Only collide when hero is moving downward and their feet are above the platform top
+      return heroBody.velocity.y >= 0 && heroBody.bottom <= platBody.top + 8;
+    }, this);
     this.physics.add.overlap(this.hero, this.pickupGroup, this._onPickup as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this);
     this.physics.add.overlap(this.hero, this.exitZone, this._onReachExit as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this);
 
@@ -291,10 +308,12 @@ export class MissionScene extends Phaser.Scene {
     const terrainY = this._getGroundYInterp(this.hero.x);
 
     // Detect landing: falling downward and feet have reached terrain level
+    const wasGrounded = this.isGrounded;
     if (!this.isGrounded && body.velocity.y >= 0 && this.hero.y >= terrainY) {
       this.isGrounded = true;
       this.jumpsRemaining = 2; // restore both jumps on landing
     }
+    if (!wasGrounded && this.isGrounded) { this._spawnLandingDust(); }
     // Go airborne: jumped, or walked off a ledge (feet above terrain)
     if (this.isGrounded && (body.velocity.y < -50 || this.hero.y < terrainY - 4)) {
       this.isGrounded = false;
@@ -316,17 +335,21 @@ export class MissionScene extends Phaser.Scene {
     }
 
     // ── Horizontal movement (arrows or WASD) ──────────────────────────────
-    const movingLeft  = this.cursors.left.isDown  || this.wasd.A.isDown;
-    const movingRight = this.cursors.right.isDown || this.wasd.D.isDown;
-    if (movingLeft) {
-      body.setVelocityX(-HERO_SPEED);
-      this.heroFacing = -1;
-    } else if (movingRight) {
-      body.setVelocityX(HERO_SPEED);
-      this.heroFacing = 1;
+    if (this.time.now < this.heroKnockbackUntil || this.time.now < this.heroSwingUntil) {
+      // Let physics/friction carry the knockback velocity — don't overwrite it
     } else {
-      body.setVelocityX(0);
+      const movingLeft  = this.cursors.left.isDown  || this.wasd.A.isDown;
+      const movingRight = this.cursors.right.isDown || this.wasd.D.isDown;
+      if (movingLeft) {
+        body.setVelocityX(-HERO_SPEED);
+      } else if (movingRight) {
+        body.setVelocityX(HERO_SPEED);
+      } else {
+        body.setVelocityX(0);
+      }
     }
+    const ptr = this.input.activePointer;
+    this.heroFacing = ptr.worldX >= this.hero.x ? 1 : -1;
     this.hero.setFlipX(this.heroFacing < 0);
 
     // ── Jump (double jump supported — Up, Space, or W) ────────────────────
@@ -348,6 +371,23 @@ export class MissionScene extends Phaser.Scene {
     const now   = this.time.now;
     const heroX = this.hero.x;
     const heroY = this.hero.body!.y + this.hero.body!.height / 2;
+
+    // Keep swing arc following the hero and advance the sweep
+    if (this.activeSwing) {
+      if (now > this.activeSwing.expiresAt) {
+        this.swingGfx?.destroy();
+        this.swingGfx  = null;
+        this.activeSwing = null;
+      } else {
+        const sw = this.activeSwing;
+        sw.hx = this.hero.x + this.heroFacing * this.hero.body!.width * 0.3;
+        sw.hy = this.hero.y - this.hero.body!.height * 0.7;
+        const t = Math.min(1, (now - sw.startTime) / (sw.expiresAt - sw.startTime));
+        sw.sweepA = sw.startA + 2 * sw.arcHalf * t;
+        this._redrawSwingGfx(sw.hx, sw.hy, sw.startA, sw.sweepA, t);
+      }
+    }
+
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const enemy = this.enemies[i]!;
       enemy.update(heroX, heroY);
@@ -364,8 +404,46 @@ export class MissionScene extends Phaser.Scene {
         continue;
       }
 
-      // AABB contact damage
-      if (now >= this.heroInvincibleUntil) {
+      // Per-enemy swing hit detection (must run before contact damage)
+      let hitBySwingThisFrame = false;
+      if (this.activeSwing) {
+        const sw = this.activeSwing;
+        if (!sw.hit.has(enemy)) {
+            const dx = enemy.gameObject.x - sw.hx;
+            const dy = enemy.centerY    - sw.hy;
+            if (Math.sqrt(dx * dx + dy * dy) <= sw.range + 20) {
+              // Normalize enemy angle into [startA, startA + 2π) then check sweep
+              let enemyA = Math.atan2(dy, dx);
+              while (enemyA < sw.startA) enemyA += 2 * Math.PI;
+              while (enemyA >= sw.startA + 2 * Math.PI) enemyA -= 2 * Math.PI;
+              if (enemyA <= sw.sweepA) {
+                const wasAlive = !enemy.isDead;
+                enemy.takeDamage(sw.damage);
+                enemy.knockback(this.heroFacing);
+                sw.hit.add(enemy);
+                hitBySwingThisFrame = true;
+                // Brief invincibility window on hit so the player can't take
+                // simultaneous contact damage — rewards good timing
+                this.heroInvincibleUntil = Math.max(
+                  this.heroInvincibleUntil, now + 200,
+                );
+                // Killing blow gets a bigger shake; regular hit gets a small one
+                if (wasAlive && enemy.isDead) {
+                  this.cameras.main.shake(130, 0.009);
+                } else {
+                  this.cameras.main.shake(60, 0.004);
+                }
+                // Aerial bounce — hitting an enemy while airborne pops you back up
+                if (!this.isGrounded) {
+                  this.hero.body!.setVelocityY(-600);
+                  this.jumpsRemaining = Math.min(this.jumpsRemaining + 1, 2);
+                }
+              }
+            }
+          }
+        }
+      // AABB contact damage — skipped if this enemy was just interrupted by a swing
+      if (!hitBySwingThisFrame && now >= this.heroInvincibleUntil) {
         const hb = this.hero.body!;
         const eb = enemy.gameObject.body as Phaser.Physics.Arcade.Body;
         if (hb.x < eb.x + eb.width  && hb.x + hb.width  > eb.x &&
@@ -373,11 +451,12 @@ export class MissionScene extends Phaser.Scene {
           this.heroHp = Math.max(0, this.heroHp - enemy.contactDamage);
           this.heroInvincibleUntil = now + 800;
           const pushDir = this.hero.x < enemy.gameObject.x ? -1 : 1;
-          this.hero.body!.setVelocityX(pushDir * 220);
-          this.hero.body!.setVelocityY(-180);
+          this.hero.body!.setVelocityX(pushDir * 420);
+          this.hero.body!.setVelocityY(-320);
+          this.heroKnockbackUntil = now + 350;
           this.isGrounded = false;
-          this.hero.setTint(0xff3333);
-          this.time.delayedCall(250, () => { this.hero.clearTint(); });
+          this.cameras.main.shake(80, 0.006);
+          this._flashHeroTint();
           if (this.heroHp <= 0) { this._completeMission('failure'); return; }
         }
       }
@@ -411,8 +490,7 @@ export class MissionScene extends Phaser.Scene {
             p.y > hb.y && p.y < hb.y + hb.height) {
           this.heroHp = Math.max(0, this.heroHp - p.damage);
           this.heroInvincibleUntil = now + 600;
-          this.hero.setTint(0xff3333);
-          this.time.delayedCall(250, () => { this.hero.clearTint(); });
+          this._flashHeroTint();
           p.gfx.destroy();
           this.projectiles.splice(i, 1);
           if (this.heroHp <= 0) { this._completeMission('failure'); return; }
@@ -645,6 +723,8 @@ export class MissionScene extends Phaser.Scene {
 
   private _getEnemyVisualConfig(cacheKey: string): EnemyVisualConfig | undefined {
     const metadata = this.cache.json.get(cacheKey) as AssetMetadataRecord | undefined;
+    const exportWidth  = metadata?.exportSize?.width;
+    const exportHeight = metadata?.exportSize?.height;
     const displayWidth = metadata?.displaySize?.width;
     const displayHeight = metadata?.displaySize?.height;
     const originX = metadata?.spritesheet?.origin?.x;
@@ -665,6 +745,11 @@ export class MissionScene extends Phaser.Scene {
       return undefined;
     }
 
+    // Scale collision box from frame-pixel space to display-pixel space.
+    // If exportSize is missing, assume the box was already authored in display space.
+    const scaleX = (exportWidth  && displayWidth)  ? displayWidth  / exportWidth  : 1;
+    const scaleY = (exportHeight && displayHeight) ? displayHeight / exportHeight : 1;
+
     return {
       displayWidth,
       displayHeight,
@@ -673,10 +758,10 @@ export class MissionScene extends Phaser.Scene {
         y: originY,
       },
       collisionBox: {
-        x: collisionBox.x,
-        y: collisionBox.y,
-        width: collisionBox.width,
-        height: collisionBox.height,
+        x:      Math.round(collisionBox.x      * scaleX),
+        y:      Math.round(collisionBox.y      * scaleY),
+        width:  Math.round(collisionBox.width  * scaleX),
+        height: Math.round(collisionBox.height * scaleY),
       },
     };
   }
@@ -689,22 +774,25 @@ export class MissionScene extends Phaser.Scene {
     this.attackCooldownUntil = now + this.equippedWeapon.cooldown;
 
     const weapon = this.equippedWeapon;
-    const hx = this.hero.x;
-    // Use the hero's vertical centre as the attack origin
-    const hy = this.hero.y - this.hero.body!.height / 2;
+    // Origin at the hero's hand — offset toward facing side, at shoulder height.
+    // Expressed as fractions of body dimensions so it scales with any sprite.
+    const hx = this.hero.x + this.heroFacing * this.hero.body!.width * 0.3;
+    const hy = this.hero.y - this.hero.body!.height * 0.7;
 
-    for (const enemy of this.enemies) {
-      const dx = enemy.gameObject.x - hx;
-      const dy = enemy.centerY - hy;
-      // Reject enemies clearly behind the hero (20 px grace for edge cases)
-      if (this.heroFacing > 0 ? dx < -20 : dx > 20) continue;
-      if (Math.sqrt(dx * dx + dy * dy) <= weapon.range) {
-        enemy.takeDamage(weapon.damage);
-        enemy.knockback(this.heroFacing);
-      }
-    }
+    const ptr = this.input.activePointer;
+    const swingAngle = Math.atan2(ptr.worldY - hy, ptr.worldX - hx);
+    const arcHalf = (weapon.arcDeg * Math.PI) / 180;
 
-    this._showSwingGfx(hx, hy);
+    const startA = swingAngle - arcHalf;
+    this.heroSwingUntil = now + weapon.swingDuration;
+    this.activeSwing = {
+      angle: swingAngle, arcHalf, startA, sweepA: startA,
+      range: weapon.range, damage: weapon.damage, hx, hy,
+      startTime: now, expiresAt: now + weapon.swingDuration,
+      hit: new Set(),
+    };
+
+    this._showSwingGfx();
   }
 
   private _spawnProjectile(data: PendingProjectile): void {
@@ -718,35 +806,100 @@ export class MissionScene extends Phaser.Scene {
     });
   }
 
-  private _showSwingGfx(hx: number, hy: number): void {
-    // Replace any in-progress swing graphic
-    this.swingGfx?.destroy();
+  // Tween target object used by _flashHeroTint so we can cancel mid-flash
+  private readonly _heroTintProgress = { v: 51 };
 
-    const weapon  = this.equippedWeapon;
-    const arcHalf = (weapon.arcDeg * Math.PI) / 180;
-    const center  = this.heroFacing > 0 ? 0 : Math.PI;
-
-    const gfx = this.add.graphics();
-    gfx.fillStyle(weapon.color, 0.45);
-    gfx.lineStyle(2, weapon.color, 0.85);
-    gfx.beginPath();
-    gfx.moveTo(hx, hy);
-    gfx.arc(hx, hy, weapon.range, center - arcHalf, center + arcHalf);
-    gfx.closePath();
-    gfx.fillPath();
-    gfx.strokePath();
-
-    this.swingGfx = gfx;
+  /** Flash the hero red then smoothly fade back to normal. */
+  private _flashHeroTint(): void {
+    this.tweens.killTweensOf(this._heroTintProgress);
+    this._heroTintProgress.v = 51;
+    this.hero.setTint(0xff3333);
     this.tweens.add({
-      targets: gfx,
-      alpha: 0,
-      duration: weapon.swingDuration,
-      ease: 'Power2',
-      onComplete: () => {
-        gfx.destroy();
-        if (this.swingGfx === gfx) this.swingGfx = null;
+      targets: this._heroTintProgress,
+      v: 255,
+      duration: 380,
+      ease: 'Linear',
+      onUpdate: () => {
+        const v = Math.round(this._heroTintProgress.v);
+        this.hero.setTint(Phaser.Display.Color.GetColor(255, v, v));
       },
+      onComplete: () => { this.hero.clearTint(); },
     });
+  }
+
+  private _spawnLandingDust(): void {
+    const x = this.hero.x;
+    const y = this.hero.y; // origin is (0.5, 1) so hero.y = feet
+    const dust = this.add.graphics();
+    dust.fillStyle(0xbbbbbb, 0.45);
+    dust.fillCircle(-10, 0, 7);
+    dust.fillCircle(10, 0, 7);
+    dust.fillCircle(0, 0, 10);
+    dust.setPosition(x, y);
+    this.tweens.add({
+      targets: dust,
+      alpha: 0,
+      scaleX: 2.8,
+      scaleY: 0.2,
+      duration: 220,
+      ease: 'Cubic.Out',
+      onComplete: () => { dust.destroy(); },
+    });
+  }
+
+  private _showSwingGfx(): void {
+    this.swingGfx?.destroy();
+    this.swingGfx = this.add.graphics();
+  }
+
+  private _redrawSwingGfx(hx: number, hy: number, startA: number, sweepA: number, t: number): void {
+    if (!this.swingGfx) return;
+    const weapon = this.equippedWeapon;
+    const totalArc = sweepA - startA;
+    this.swingGfx.clear();
+
+    // Fading swept fill — pizza-slice shape that dissolves as the swing progresses
+    this.swingGfx.fillStyle(weapon.color, 0.28 * (1 - t));
+    this.swingGfx.beginPath();
+    this.swingGfx.moveTo(hx, hy);
+    this.swingGfx.arc(hx, hy, weapon.range, startA, sweepA);
+    this.swingGfx.closePath();
+    this.swingGfx.fillPath();
+
+    // Layered whoosh streaks — ghost blade positions trailing behind the current angle.
+    const streaks = [
+      { offset: 0.20, lengthFrac: 0.88, alpha: 0.28 },
+      { offset: 0.38, lengthFrac: 0.72, alpha: 0.16 },
+      { offset: 0.55, lengthFrac: 0.55, alpha: 0.08 },
+    ];
+    for (const s of streaks) {
+      const ghostA = sweepA - totalArc * s.offset;
+      if (ghostA < startA) continue;
+      const len = weapon.range * s.lengthFrac;
+      this.swingGfx.lineStyle(3, weapon.color, s.alpha * (1 - t * 0.5));
+      this.swingGfx.beginPath();
+      this.swingGfx.moveTo(hx, hy);
+      this.swingGfx.lineTo(hx + Math.cos(ghostA) * len, hy + Math.sin(ghostA) * len);
+      this.swingGfx.strokePath();
+    }
+
+    // Blade — bright leading line, tapers in alpha as swing ends
+    this.swingGfx.lineStyle(4, weapon.color, 0.92 * (1 - t * 0.25));
+    this.swingGfx.beginPath();
+    this.swingGfx.moveTo(hx, hy);
+    this.swingGfx.lineTo(
+      hx + Math.cos(sweepA) * weapon.range,
+      hy + Math.sin(sweepA) * weapon.range,
+    );
+    this.swingGfx.strokePath();
+
+    // White tip glint that fades quickly
+    this.swingGfx.fillStyle(0xffffff, 0.75 * (1 - t));
+    this.swingGfx.fillCircle(
+      hx + Math.cos(sweepA) * weapon.range,
+      hy + Math.sin(sweepA) * weapon.range,
+      3,
+    );
   }
 
   /** Simple deterministic pseudo-random from a seed number (0..1). */
@@ -926,6 +1079,19 @@ export class MissionScene extends Phaser.Scene {
     // Increment gathered count
     this.resourcesGathered[resourceId] = (this.resourcesGathered[resourceId] ?? 0) + 1;
 
+    // Floating "+1 <resource>" text that drifts up and fades
+    const floatText = this.add.text(zone.x, zone.y - 10, `+1 ${resourceId}`, {
+      fontSize: '16px', color: '#88ff88', fontFamily: 'monospace', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.tweens.add({
+      targets: floatText,
+      y: zone.y - 65,
+      alpha: 0,
+      duration: 700,
+      ease: 'Cubic.Out',
+      onComplete: () => { floatText.destroy(); },
+    });
+
     // Remove the visual and the zone
     gfx?.destroy();
     label?.destroy();
@@ -951,6 +1117,8 @@ export class MissionScene extends Phaser.Scene {
       enemy.gameObject.body.setVelocity(0, 0);
       enemy.gameObject.body.setGravityY(0);
     }
+
+    this.activeSwing = null;
 
     // Destroy any in-flight projectiles
     for (const p of this.projectiles) { p.gfx.destroy(); }
@@ -1059,7 +1227,9 @@ export class MissionScene extends Phaser.Scene {
     }
     this.hudText.setText(`Collected: ${lines.length > 0 ? lines.join('  ') : '(none)'}`);
 
-    // Redraw HP bar
+    // Redraw HP bar only when HP has changed
+    if (this.heroHp === this.heroHpDrawn) return;
+    this.heroHpDrawn = this.heroHp;
     const pct = this.heroHp / this.heroMaxHp;
     const barX = 40; const barY = 73; const barW = 140; const barH = 11;
     this.heroHpGfx.clear();
