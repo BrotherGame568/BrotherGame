@@ -4,5 +4,6 @@
 
 | ID | Description | Path | Size | Format | Status |
 |---|---|---|---|---|---|
-| `rootwalker_walk_cycle` | walk animation sheet | `animations/rootwalker_walk_cycle.webp` | 6×6 cells, 160×160 display | webp spritesheet | generated |
-| `walk_cycle_spider` | Generated from video (walk) | `animations/walk_cycle_spider.webp` | 6×6 cells, 124×70 display | webp spritesheet | generated |
+| `hound_walk_cycle` | walk animation sheet | `animations/hound_walk_cycle.webp` | 6×6 cells, 195×110 display | webp spritesheet | generated |
+| `rootwalker_walk_cycle` | walk animation sheet | `animations/rootwalker_walk_cycle.webp` | 6×6 cells, 180×180 display | webp spritesheet | generated |
+| `spiderwalkcycle` | Generated from video (walk) | `animations/spiderwalkcycle.webp` | 6×6 cells, 90×51 display | webp spritesheet | generated |

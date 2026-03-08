@@ -16,8 +16,8 @@
     "height": 466
   },
   "displaySize": {
-    "width": 160,
-    "height": 160
+    "width": 180,
+    "height": 180
   },
   "optimization": {
     "enabled": true,
@@ -36,17 +36,17 @@
     "collisionBox": {
       "x": 36,
       "y": 30,
-      "width": 96,
-      "height": 121
+      "width": 111,
+      "height": 142
     },
     "frameCount": 36
   },
   "source": {
     "kind": "image",
-    "name": "RootWalker-Walk-cycle.png",
-    "mimeType": "image/png",
-    "sizeBytes": 6848098
+    "name": "rootwalker_walk_cycle.webp",
+    "mimeType": "image/webp",
+    "sizeBytes": 774578
   },
-  "generatedAt": "2026-03-08T00:12:51.712Z",
+  "generatedAt": "2026-03-08T01:49:07.303Z",
   "notes": ""
 }

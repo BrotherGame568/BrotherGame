@@ -1,6 +1,60 @@
 {
-  "generatedAt": "2026-03-08T00:12:51.729Z",
+  "generatedAt": "2026-03-08T01:57:55.982Z",
   "assets": [
+    {
+      "id": "hound_walk_cycle",
+      "name": "Hound Walk Cycle",
+      "status": "active",
+      "category": "animations",
+      "mode": "spritesheet",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/animations/hound_walk_cycle.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\animations\\hound_walk_cycle.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\hound_walk_cycle.asset.json",
+      "metadataRelativePath": "game/assets/_meta/hound_walk_cycle.asset.json",
+      "exportSize": {
+        "width": 213,
+        "height": 120
+      },
+      "displaySize": {
+        "width": 195,
+        "height": 110
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": true,
+        "notes": [
+          "Local matte background removal applied per frame."
+        ]
+      },
+      "spritesheet": {
+        "columns": 6,
+        "rows": 6,
+        "frameRate": 12,
+        "animationType": "walk",
+        "origin": {
+          "x": 0.47,
+          "y": 0.9
+        },
+        "collisionBox": {
+          "x": 15,
+          "y": 7,
+          "width": 140,
+          "height": 93
+        },
+        "frameCount": 36
+      },
+      "source": {
+        "kind": "image",
+        "name": "hound_walk_cycle.webp",
+        "mimeType": "image/webp",
+        "sizeBytes": 177164
+      },
+      "generatedAt": "2026-03-08T01:48:36.787Z",
+      "notes": ""
+    },
     {
       "id": "rootwalker_walk_cycle",
       "name": "RootWalker Walk Cycle",
@@ -19,8 +73,8 @@
         "height": 466
       },
       "displaySize": {
-        "width": 160,
-        "height": 160
+        "width": 180,
+        "height": 180
       },
       "optimization": {
         "enabled": true,
@@ -39,43 +93,47 @@
         "collisionBox": {
           "x": 36,
           "y": 30,
-          "width": 96,
-          "height": 121
+          "width": 111,
+          "height": 142
         },
         "frameCount": 36
       },
       "source": {
         "kind": "image",
-        "name": "RootWalker-Walk-cycle.png",
-        "mimeType": "image/png",
-        "sizeBytes": 6848098
+        "name": "rootwalker_walk_cycle.webp",
+        "mimeType": "image/webp",
+        "sizeBytes": 774578
       },
-      "generatedAt": "2026-03-08T00:12:51.712Z",
+      "generatedAt": "2026-03-08T01:49:07.303Z",
       "notes": ""
     },
     {
-      "id": "walk_cycle_spider",
+      "id": "spiderwalkcycle",
       "name": "Spider Walk Cycle",
+      "status": "active",
       "category": "animations",
       "mode": "video",
       "outputFormat": "webp",
-      "outputRelativePath": "game/assets/animations/walk_cycle_spider.webp",
-      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\animations\\walk_cycle_spider.webp",
-      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\walk_cycle_spider.asset.json",
-      "metadataRelativePath": "game/assets/_meta/walk_cycle_spider.asset.json",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/animations/spiderwalkcycle.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\animations\\spiderwalkcycle.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\spiderwalkcycle.asset.json",
+      "metadataRelativePath": "game/assets/_meta/spiderwalkcycle.asset.json",
       "exportSize": {
-        "width": 1280,
-        "height": 720
+        "width": 213,
+        "height": 120
       },
       "displaySize": {
-        "width": 124,
-        "height": 70
+        "width": 90,
+        "height": 51
       },
       "optimization": {
         "enabled": true,
         "backgroundRemovalRequested": true,
         "notes": [
           "Video processed into spritesheet with local FFmpeg extraction.",
+          "Frames were sampled evenly across the trimmed clip.",
           "Local matte background removal applied to extracted frames."
         ]
       },
@@ -85,21 +143,22 @@
         "frameRate": 12,
         "animationType": "walk",
         "origin": {
-          "x": 0.48,
-          "y": 0.86
+          "x": 0.45,
+          "y": 0.77
         },
         "collisionBox": {
-          "x": 11,
-          "y": 1,
-          "width": 92,
-          "height": 56
+          "x": 13,
+          "y": 4,
+          "width": 62,
+          "height": 36
         },
         "frameCount": 36
       },
       "video": {
         "trimStartSeconds": 0,
         "trimEndSeconds": 0,
-        "requestedFrameRate": 12
+        "requestedFrameRate": 12,
+        "sampling": "spread"
       },
       "source": {
         "kind": "video",
@@ -107,7 +166,7 @@
         "mimeType": "video/mp4",
         "sizeBytes": 4868099
       },
-      "generatedAt": "2026-03-07T17:56:59.002Z",
+      "generatedAt": "2026-03-08T01:57:55.979Z",
       "notes": ""
     }
   ]

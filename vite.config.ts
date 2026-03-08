@@ -2,6 +2,8 @@ import { defineConfig } from 'vite';
 import path from 'path';
 
 export default defineConfig({
+  // Serve game/assets/ as static root so Phaser can load sprites by path
+  publicDir: 'game/assets',
   resolve: {
     alias: {
       '@scenes': path.resolve(__dirname, 'game/scenes'),
