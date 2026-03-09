@@ -289,6 +289,7 @@ export default function App() {
     draft.videoSampling,
     draft.resizeFit,
     draft.removeBackground,
+    draft.cropToBoundingBox,
   ]);
 
   useEffect(() => {
@@ -816,6 +817,7 @@ export default function App() {
             <SelectField label="Output format" value={draft.outputFormat} options={OUTPUT_FORMATS} onChange={(value) => updateDraft(setDraft, 'outputFormat', value as OutputFormat)} />
             <ToggleField label="Optimize for web" checked={draft.enableOptimization} onChange={(checked) => updateDraft(setDraft, 'enableOptimization', checked)} />
             <ToggleField label="Background removal" checked={draft.removeBackground} onChange={(checked) => updateDraft(setDraft, 'removeBackground', checked)} helper="Uses local corner-matte removal when processed by the backend." />
+            <ToggleField label="Crop to bounding box" checked={draft.cropToBoundingBox} onChange={(checked) => updateDraft(setDraft, 'cropToBoundingBox', checked)} helper="Reads frame 0 content bounds after background removal and sets the display size to match. Does not alter the exported pixels." />
             <TextAreaField label="Notes" value={draft.notes} onChange={(value) => updateDraft(setDraft, 'notes', value)} />
             </div>
           </CollapsibleSection>
@@ -1109,6 +1111,19 @@ function PreviewCanvas({
 
     async function preparePreview(): Promise<void> {
       if (previewSourceOverride) {
+        if (draft.cropToBoundingBox) {
+          const frameW = Math.floor(previewSourceOverride.width / Math.max(1, draft.columns));
+          const frameH = Math.floor(previewSourceOverride.height / Math.max(1, draft.rows));
+          const frame = document.createElement('canvas');
+          frame.width = frameW;
+          frame.height = frameH;
+          const fc = frame.getContext('2d');
+          if (fc) fc.drawImage(previewSourceOverride, 0, 0, frameW, frameH, 0, 0, frameW, frameH);
+          const tight = cropCanvasToBoundingBox(frame);
+          if (tight.width > 0 && tight.height > 0 && !cancelled) {
+            onDraftChange((current) => ({ ...current, displayWidth: tight.width, displayHeight: tight.height }));
+          }
+        }
         setPreviewSource(previewSourceOverride);
         return;
       }
@@ -1118,12 +1133,39 @@ function PreviewCanvas({
         return;
       }
 
-      if (!draft.removeBackground) {
+      if (!draft.removeBackground && !draft.cropToBoundingBox) {
         setPreviewSource(previewImage);
         return;
       }
 
-      const processed = await createBackgroundRemovedCanvas(previewImage);
+      let processed: HTMLCanvasElement;
+      if (draft.removeBackground) {
+        processed = await createBackgroundRemovedCanvas(previewImage);
+      } else {
+        const canvas = document.createElement('canvas');
+        canvas.width = previewImage.naturalWidth;
+        canvas.height = previewImage.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.drawImage(previewImage, 0, 0);
+        processed = canvas;
+      }
+
+      if (draft.cropToBoundingBox) {
+        const cols = draft.mode === 'image' ? 1 : Math.max(1, draft.columns);
+        const rowCount = draft.mode === 'image' ? 1 : Math.max(1, draft.rows);
+        const frameW = Math.floor(processed.width / cols);
+        const frameH = Math.floor(processed.height / rowCount);
+        const frame = document.createElement('canvas');
+        frame.width = frameW;
+        frame.height = frameH;
+        const fc = frame.getContext('2d');
+        if (fc) fc.drawImage(processed, 0, 0, frameW, frameH, 0, 0, frameW, frameH);
+        const tight = cropCanvasToBoundingBox(frame);
+        if (tight.width > 0 && tight.height > 0 && !cancelled) {
+          onDraftChange((current) => ({ ...current, displayWidth: tight.width, displayHeight: tight.height }));
+        }
+      }
+
       if (!cancelled) {
         setPreviewSource(processed);
       }
@@ -1133,7 +1175,7 @@ function PreviewCanvas({
     return () => {
       cancelled = true;
     };
-  }, [previewImage, previewSourceOverride, draft.removeBackground]);
+  }, [previewImage, previewSourceOverride, draft.removeBackground, draft.cropToBoundingBox, draft.mode, draft.columns, draft.rows]);
 
   useEffect(() => {
     let frameId = 0;
@@ -1784,6 +1826,46 @@ async function createBackgroundRemovedCanvas(image: HTMLImageElement): Promise<H
   context.drawImage(image, 0, 0);
 
   return removeBackgroundFromCanvas(canvas);
+}
+
+function cropCanvasToBoundingBox(source: HTMLCanvasElement): HTMLCanvasElement {
+  const context = source.getContext('2d');
+  if (!context) return source;
+
+  const imageData = context.getImageData(0, 0, source.width, source.height);
+  const { data, width, height } = imageData;
+
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const alpha = data[(y * width + x) * 4 + 3] ?? 0;
+      if (alpha > 0) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (maxX < 0 || maxY < 0) {
+    return source; // fully transparent — nothing to crop
+  }
+
+  const cropWidth = maxX - minX + 1;
+  const cropHeight = maxY - minY + 1;
+  const canvas = document.createElement('canvas');
+  canvas.width = cropWidth;
+  canvas.height = cropHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return source;
+
+  ctx.drawImage(source, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+  return canvas;
 }
 
 function removeBackgroundFromCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
