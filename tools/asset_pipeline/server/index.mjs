@@ -215,6 +215,19 @@ async function processRasterAsset(file, draft) {
       background: { r: 0, g: 0, b: 0, alpha: 0 },
     });
 
+    let suggestedDisplayWidth;
+    let suggestedDisplayHeight;
+    if (draft.cropToBoundingBox) {
+      const { data, info } = await pipeline.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const bbox = findOpaqueBoundingBox(data, info.width, info.height);
+      if (bbox) {
+        suggestedDisplayWidth = bbox.maxX - bbox.minX + 1;
+        suggestedDisplayHeight = bbox.maxY - bbox.minY + 1;
+        notes.push(`Display size inferred from content bounding box (${suggestedDisplayWidth}\u00d7${suggestedDisplayHeight}).`);
+      }
+      pipeline = sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } });
+    }
+
     const outputBuffer = await applyFormat(pipeline, effectiveFormat).toBuffer();
     return {
       outputBuffer,
@@ -222,6 +235,8 @@ async function processRasterAsset(file, draft) {
       outputBytes: outputBuffer.byteLength,
       notes,
       frameCount: 1,
+      suggestedDisplayWidth,
+      suggestedDisplayHeight,
     };
   }
 
@@ -233,10 +248,15 @@ async function processRasterAsset(file, draft) {
   const frameHeight = Math.floor((metadata.height ?? 1) / rows);
   const targetFrameWidth = Math.max(1, draft.exportWidth);
   const targetFrameHeight = Math.max(1, draft.exportHeight);
+
+  // Single-pass: process all frames; sample frame 0 bbox for suggested display size
   const composites = [];
+  let suggestedDisplayWidth;
+  let suggestedDisplayHeight;
 
   for (let row = 0; row < rows; row += 1) {
     for (let col = 0; col < columns; col += 1) {
+      const frameIndex = row * columns + col;
       let frame = sharp(file.buffer, sharpInputOptions).extract({
         left: col * frameWidth,
         top: row * frameHeight,
@@ -248,19 +268,28 @@ async function processRasterAsset(file, draft) {
         frame = await removeBackgroundFromPipeline(frame);
       }
 
-      const frameBuffer = await applyFormat(
-        frame.resize(targetFrameWidth, targetFrameHeight, {
-          fit: toSharpFit(draft.resizeFit),
-          background: { r: 0, g: 0, b: 0, alpha: 0 },
-        }),
-        'png',
-      ).toBuffer();
-
-      composites.push({
-        input: frameBuffer,
-        left: col * targetFrameWidth,
-        top: row * targetFrameHeight,
+      const resized = frame.resize(targetFrameWidth, targetFrameHeight, {
+        fit: toSharpFit(draft.resizeFit),
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
       });
+
+      if (draft.cropToBoundingBox && frameIndex === 0) {
+        const { data, info } = await resized.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+        const bbox = findOpaqueBoundingBox(data, info.width, info.height);
+        if (bbox) {
+          suggestedDisplayWidth = bbox.maxX - bbox.minX + 1;
+          suggestedDisplayHeight = bbox.maxY - bbox.minY + 1;
+          notes.push(`Display size inferred from frame 0 content bounding box (${suggestedDisplayWidth}\u00d7${suggestedDisplayHeight}).`);
+        }
+        const frameBuffer = await applyFormat(
+          sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } }),
+          'png',
+        ).toBuffer();
+        composites.push({ input: frameBuffer, left: col * targetFrameWidth, top: row * targetFrameHeight });
+      } else {
+        const frameBuffer = await applyFormat(resized, 'png').toBuffer();
+        composites.push({ input: frameBuffer, left: col * targetFrameWidth, top: row * targetFrameHeight });
+      }
     }
   }
 
@@ -284,6 +313,8 @@ async function processRasterAsset(file, draft) {
     outputBytes: outputBuffer.byteLength,
     notes,
     frameCount: columns * rows,
+    suggestedDisplayWidth,
+    suggestedDisplayHeight,
   };
 }
 
@@ -334,13 +365,18 @@ async function processVideoAsset(file, draft) {
 
   const frameNames = sampleFrameNames(extractedFrameNames, targetFrameCount, draft.videoSampling);
 
-  const composites = [];
   const notes = ['Video processed into spritesheet with local FFmpeg extraction.'];
   if (draft.videoSampling === 'spread') {
     notes.push('Frames were sampled evenly across the trimmed clip.');
   } else {
     notes.push('Frames were taken sequentially from the trimmed clip.');
   }
+
+  // Single-pass: composite all frames; sample frame 0 bbox for suggested display size
+  const composites = [];
+  let suggestedDisplayWidth;
+  let suggestedDisplayHeight;
+
   for (let index = 0; index < targetFrameCount; index += 1) {
     const frameName = frameNames[Math.min(index, frameNames.length - 1)];
     let frame = sharp(path.join(framesDir, frameName), { limitInputPixels: false });
@@ -348,14 +384,25 @@ async function processVideoAsset(file, draft) {
       frame = await removeBackgroundFromPipeline(frame);
     }
 
-    const frameBuffer = await frame.png().toBuffer();
     const col = index % columns;
     const row = Math.floor(index / columns);
-    composites.push({
-      input: frameBuffer,
-      left: col * targetFrameWidth,
-      top: row * targetFrameHeight,
-    });
+
+    if (draft.cropToBoundingBox && index === 0) {
+      const { data, info } = await frame.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const bbox = findOpaqueBoundingBox(data, info.width, info.height);
+      if (bbox) {
+        suggestedDisplayWidth = bbox.maxX - bbox.minX + 1;
+        suggestedDisplayHeight = bbox.maxY - bbox.minY + 1;
+        notes.push(`Display size inferred from frame 0 content bounding box (${suggestedDisplayWidth}\u00d7${suggestedDisplayHeight}).`);
+      }
+      const frameBuffer = await applyFormat(
+        sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } }), 'png',
+      ).toBuffer();
+      composites.push({ input: frameBuffer, left: col * targetFrameWidth, top: row * targetFrameHeight });
+    } else {
+      const frameBuffer = await frame.png().toBuffer();
+      composites.push({ input: frameBuffer, left: col * targetFrameWidth, top: row * targetFrameHeight });
+    }
   }
 
   if (draft.removeBackground) {
@@ -385,6 +432,8 @@ async function processVideoAsset(file, draft) {
     outputBytes: outputBuffer.byteLength,
     notes,
     frameCount: targetFrameCount,
+    suggestedDisplayWidth,
+    suggestedDisplayHeight,
   };
 }
 
@@ -411,6 +460,27 @@ async function removeBackgroundFromPipeline(pipeline) {
       channels: info.channels,
     },
   });
+}
+
+function findOpaqueBoundingBox(data, width, height) {
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const alpha = data[(y * width + x) * 4 + 3];
+      if (alpha > 0) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  return maxX >= 0 ? { minX, minY, maxX, maxY } : null;
 }
 
 function sampleCornerColor(buffer, width, height, channels) {
@@ -580,12 +650,13 @@ function buildPersistedMetadata(draft, file, result, existingAsset) {
       height: draft.exportHeight,
     },
     displaySize: {
-      width: draft.displayWidth,
-      height: draft.displayHeight,
+      width: result.suggestedDisplayWidth ?? draft.displayWidth,
+      height: result.suggestedDisplayHeight ?? draft.displayHeight,
     },
     optimization: {
       enabled: draft.enableOptimization,
       backgroundRemovalRequested: draft.removeBackground,
+      cropToBoundingBoxRequested: draft.cropToBoundingBox ?? false,
       notes: result.notes,
     },
     spritesheet: draft.mode === 'image' ? undefined : {
@@ -646,6 +717,7 @@ function buildMetadataOnlyUpdate(existing, draft) {
     optimization: {
       enabled: draft.enableOptimization,
       backgroundRemovalRequested: draft.removeBackground,
+      cropToBoundingBoxRequested: draft.cropToBoundingBox ?? false,
       notes: existing.optimization?.notes ?? [],
     },
     spritesheet: draft.mode === 'image' ? undefined : {

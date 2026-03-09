@@ -40,6 +40,7 @@ export interface AssetDraft {
   displayWidth: number;
   displayHeight: number;
   removeBackground: boolean;
+  cropToBoundingBox: boolean;
   enableOptimization: boolean;
   animationType: AnimationType;
   columns: number;
@@ -66,6 +67,7 @@ export interface AssetMetadataDocument {
   optimization: {
     enabled: boolean;
     backgroundRemovalRequested: boolean;
+    cropToBoundingBoxRequested?: boolean;
   };
   spritesheet?: {
     columns: number;
