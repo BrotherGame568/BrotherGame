@@ -61,6 +61,8 @@ interface AssetMetadataRecord {
       width?: number;
       height?: number;
     };
+    frameRate?: number;
+    frameCount?: number;
   };
 }
 
@@ -95,6 +97,7 @@ export class MissionScene extends Phaser.Scene {
   private equippedWeapon!: WeaponDef;
   private attackCooldownUntil = 0;
   private heroFacing: 1 | -1 = 1;
+  private _heroAnim: 'walk' | 'idle' | 'attack' = 'idle';
   private swingGfx: Phaser.GameObjects.Graphics | null = null;
   private activeSwing: {
     angle: number; arcHalf: number; startA: number; sweepA: number;
@@ -109,6 +112,15 @@ export class MissionScene extends Phaser.Scene {
   private heroInvincibleUntil = 0;
   private heroKnockbackUntil = 0;
   private heroSwingUntil = 0;
+  /** Duration of the full attack animation in ms — set from metadata in create(). */
+  private _heroAttackAnimDurationMs = 1500;
+  /** Timestamp when the attack *animation* finishes. */
+  private _heroAttackAnimUntil = 0;
+  /** Display size + origin for each hero animation — set from metadata in _createHero(). */
+  private _heroVisual: Record<'walk' | 'attack', { dw: number; dh: number; origX: number; origY: number }> = {
+    walk:   { dw: 160, dh: 90,  origX: 0.51, origY: 0.92 },
+    attack: { dw: 160, dh: 90,  origX: 0.51, origY: 0.92 },
+  };
   private heroHpDrawn = -1;
   private heroHpGfx!: Phaser.GameObjects.Graphics;
 
@@ -151,6 +163,15 @@ export class MissionScene extends Phaser.Scene {
     this.load.json('rootwalker_walk_cycle_meta', '_meta/rootwalker_walk_cycle.asset.json');
     this.load.json('hound_walk_cycle_meta', '_meta/hound_walk_cycle.asset.json');
     this.load.json('spiderwalkcycle_meta', '_meta/spiderwalkcycle.asset.json');
+    // Hero spritesheets
+    if (!this.textures.exists('hero1_walk_cycle')) {
+      this.load.spritesheet('hero1_walk_cycle', 'animations/hero1_walk_cycle.webp', { frameWidth: 213, frameHeight: 120 });
+    }
+    if (!this.textures.exists('hero1attack')) {
+      this.load.spritesheet('hero1attack', 'animations/hero1attack.webp', { frameWidth: 213, frameHeight: 120 });
+    }
+    this.load.json('hero1_walk_cycle_meta', '_meta/hero1_walk_cycle.asset.json');
+    this.load.json('hero1attack_meta', '_meta/hero1attack.asset.json');
   }
 
   create(): void {
@@ -204,6 +225,40 @@ export class MissionScene extends Phaser.Scene {
       });
     }
 
+    // ── Hero animations ────────────────────────────────────────────────────
+    const heroWalkMeta   = this.cache.json.get('hero1_walk_cycle_meta') as AssetMetadataRecord | undefined;
+    const heroAttackMeta = this.cache.json.get('hero1attack_meta')       as AssetMetadataRecord | undefined;
+    const heroWalkFps    = heroWalkMeta?.spritesheet?.frameRate   ?? 12;
+    const heroAttackFps  = heroAttackMeta?.spritesheet?.frameRate ?? 24;
+    const heroAttackFrames = heroAttackMeta?.spritesheet?.frameCount ?? 36;
+    // Store for use in _performAttack so cooldown matches the real animation length
+    this._heroAttackAnimDurationMs = (heroAttackFrames / heroAttackFps) * 1000;
+
+    if (!this.anims.exists('hero1_walk')) {
+      this.anims.create({
+        key: 'hero1_walk',
+        frames: this.anims.generateFrameNumbers('hero1_walk_cycle', { start: 0, end: 35 }),
+        frameRate: heroWalkFps,
+        repeat: -1,
+      });
+    }
+    if (!this.anims.exists('hero1_idle')) {
+      this.anims.create({
+        key: 'hero1_idle',
+        frames: [{ key: 'hero1_walk_cycle', frame: 0 }],
+        frameRate: 1,
+        repeat: -1,
+      });
+    }
+    if (!this.anims.exists('hero1_attack')) {
+      this.anims.create({
+        key: 'hero1_attack',
+        frames: this.anims.generateFrameNumbers('hero1attack', { start: 0, end: heroAttackFrames - 1 }),
+        frameRate: heroAttackFps,
+        repeat: 0,
+      });
+    }
+
     // Reset state
     this.resourcesGathered = {};
     this.missionComplete = false;
@@ -211,7 +266,9 @@ export class MissionScene extends Phaser.Scene {
     this.enemies = [];
     this.equippedWeapon = WEAPONS.sword;
     this.attackCooldownUntil = 0;
+    this._heroAttackAnimUntil = 0;
     this.heroFacing = 1;
+    this._heroAnim = 'idle';
     this.swingGfx = null;
     this.heroHp = this.heroMaxHp;
     this.heroInvincibleUntil = 0;
@@ -365,6 +422,35 @@ export class MissionScene extends Phaser.Scene {
     // Update name tag position to follow the hero
     if (this.heroNameTag) {
       this.heroNameTag.setPosition(this.hero.x, this.hero.y - 110);
+    }
+
+    // ── Hero animation state ──────────────────────────────────────────────
+    const isAttacking = this.time.now < this._heroAttackAnimUntil;
+    const isMoving    = Math.abs(this.hero.body!.velocity.x) > 10 && (body.blocked.down || this.isGrounded);
+    if (isAttacking) {
+      if (this._heroAnim !== 'attack') {
+        this._heroAnim = 'attack';
+        this.hero.anims.play('hero1_attack', true);
+        const v = this._heroVisual.attack;
+        this.hero.setDisplaySize(v.dw, v.dh);
+        this.hero.setOrigin(v.origX, v.origY);
+      }
+    } else if (isMoving) {
+      if (this._heroAnim !== 'walk') {
+        this._heroAnim = 'walk';
+        this.hero.anims.play('hero1_walk', true);
+        const v = this._heroVisual.walk;
+        this.hero.setDisplaySize(v.dw, v.dh);
+        this.hero.setOrigin(v.origX, v.origY);
+      }
+    } else {
+      if (this._heroAnim !== 'idle') {
+        this._heroAnim = 'idle';
+        this.hero.anims.play('hero1_idle', true);
+        const v = this._heroVisual.walk; // idle uses walk cycle texture, same visual config
+        this.hero.setDisplaySize(v.dw, v.dh);
+        this.hero.setOrigin(v.origX, v.origY);
+      }
     }
 
     // Update enemies + contact damage
@@ -785,6 +871,7 @@ export class MissionScene extends Phaser.Scene {
 
     const startA = swingAngle - arcHalf;
     this.heroSwingUntil = now + weapon.swingDuration;
+    this._heroAttackAnimUntil = now + this._heroAttackAnimDurationMs;
     this.activeSwing = {
       angle: swingAngle, arcHalf, startA, sweepA: startA,
       range: weapon.range, damage: weapon.damage, hx, hy,
@@ -979,85 +1066,46 @@ export class MissionScene extends Phaser.Scene {
   // ── Hero ───────────────────────────────────────────────
 
   private _createHero(): void {
-    // Texture dimensions. All draw commands are offset by (ox, oy) so every
-    // pixel lands inside the 0..TW, 0..TH capture area (negative coords are clipped).
-    //   Character spans: x -20..+20, y -32..+44  (relative to centre-bottom)
-    //   With ox=24, oy=38: x 4..44 ✓  y 6..82 ✓  within 48×84
-    const TW = 48;
-    const TH = 84;
-    const ox = TW / 2;   // horizontal centre = 24
-    const oy = 38;        // vertical offset to clear hair (hair top = oy-32 = 6)
+    const walkMeta   = this.cache.json.get('hero1_walk_cycle_meta') as AssetMetadataRecord | undefined;
+    const attackMeta = this.cache.json.get('hero1attack_meta')       as AssetMetadataRecord | undefined;
 
-    const heroGfx = this.add.graphics();
+    const DW    = walkMeta?.displaySize?.width  ?? 160;
+    const DH    = walkMeta?.displaySize?.height ?? 90;
+    const origX = walkMeta?.spritesheet?.origin?.x ?? 0.51;
+    const origY = walkMeta?.spritesheet?.origin?.y ?? 0.92;
+    const CB_X  = walkMeta?.spritesheet?.collisionBox?.x      ?? 66;
+    const CB_W  = walkMeta?.spritesheet?.collisionBox?.width  ?? 33;
+    const CB_H  = walkMeta?.spritesheet?.collisionBox?.height ?? 67;
+    // Phaser's body.y formula uses originY × exportFrameHeight (not displayHeight).
+    // Derive CB_Y so body.bottom aligns exactly with hero.y (the visual foot point):
+    //   body.bottom = hero.y  →  CB_Y = origY * exportH - CB_H
+    const exportH = walkMeta?.exportSize?.height ?? 120;
+    const CB_Y  = Math.round(origY * exportH) - CB_H;
 
-    // -- Body (torso) --
-    heroGfx.fillStyle(0x3366aa, 1);
-    heroGfx.fillRoundedRect(ox - 14, oy - 10, 28, 32, 4);
+    // Store per-animation visual configs so update() can swap them on transitions.
+    this._heroVisual = {
+      walk: { dw: DW, dh: DH, origX, origY },
+      attack: {
+        dw:    attackMeta?.displaySize?.width   ?? DW,
+        dh:    attackMeta?.displaySize?.height  ?? DH,
+        origX: attackMeta?.spritesheet?.origin?.x ?? origX,
+        origY: attackMeta?.spritesheet?.origin?.y ?? origY,
+      },
+    };
 
-    // -- Legs --
-    heroGfx.fillStyle(0x224477, 1);
-    heroGfx.fillRect(ox - 12, oy + 22, 10, 20);   // left leg
-    heroGfx.fillRect(ox + 2,  oy + 22, 10, 20);   // right leg
-
-    // -- Boots --
-    heroGfx.fillStyle(0x443322, 1);
-    heroGfx.fillRoundedRect(ox - 14, oy + 38, 12, 6, 2);  // left boot
-    heroGfx.fillRoundedRect(ox + 2,  oy + 38, 12, 6, 2);  // right boot
-
-    // -- Head --
-    heroGfx.fillStyle(0xddbb88, 1);
-    heroGfx.fillCircle(ox, oy - 20, 12);
-
-    // -- Hair --
-    heroGfx.fillStyle(0x553311, 1);
-    heroGfx.fillRect(ox - 12, oy - 32, 24, 8);   // hair top
-    heroGfx.fillRect(ox - 12, oy - 28,  4, 8);   // hair left side
-    heroGfx.fillRect(ox + 8,  oy - 28,  4, 8);   // hair right side
-
-    // -- Eyes --
-    heroGfx.fillStyle(0xffffff, 1);
-    heroGfx.fillCircle(ox - 5, oy - 22, 3);
-    heroGfx.fillCircle(ox + 5, oy - 22, 3);
-    heroGfx.fillStyle(0x223344, 1);
-    heroGfx.fillCircle(ox - 4, oy - 22, 1.5);
-    heroGfx.fillCircle(ox + 6, oy - 22, 1.5);
-
-    // -- Arms --
-    heroGfx.fillStyle(0x3366aa, 1);
-    heroGfx.fillRect(ox - 20, oy - 6, 8, 22);    // left arm
-    heroGfx.fillRect(ox + 12, oy - 6, 8, 22);    // right arm
-
-    // -- Hands --
-    heroGfx.fillStyle(0xddbb88, 1);
-    heroGfx.fillCircle(ox - 16, oy + 18, 4);
-    heroGfx.fillCircle(ox + 16, oy + 18, 4);
-
-    // -- Belt --
-    heroGfx.fillStyle(0x665533, 1);
-    heroGfx.fillRect(ox - 14, oy + 18, 28, 5);
-
-    // -- Outline --
-    heroGfx.lineStyle(1.5, 0x1a1a2e, 0.6);
-    heroGfx.strokeCircle(ox, oy - 20, 12);
-    heroGfx.strokeRoundedRect(ox - 14, oy - 10, 28, 32, 4);
-
-    heroGfx.generateTexture('hero_placeholder', TW, TH);
-    heroGfx.destroy();
-
-    // Spawn with origin (0.5, 1) so the sprite's bottom edge sits exactly on
-    // the ground surface. No manual y-offset arithmetic needed.
     const groundY = (this.heightMap[2] ?? GROUND_BASE_Y);
-    this.hero = this.physics.add.sprite(100, groundY, 'hero_placeholder');
-    this.hero.setOrigin(0.5, 1);
+    this.hero = this.physics.add.sprite(100, groundY, 'hero1_walk_cycle');
+    this.hero.setDisplaySize(DW, DH);
+    this.hero.setOrigin(origX, origY);
     this.hero.setCollideWorldBounds(true);
 
-    // Physics body: 28×70, positioned so its bottom aligns with the sprite's
-    // bottom (y = TH = 84 in frame space). setOffset is always from frame
-    // top-left regardless of origin.
-    // Body occupies (10, 14) → (38, 84) → bottom at frame bottom → on ground.
-    this.hero.body!.setSize(28, 70, false);
-    this.hero.body!.setOffset((TW - 28) / 2, TH - 70);  // (10, 14)
+    // Physics body from metadata collision box (display-space coords).
+    // setOffset is from frame top-left, independent of origin.
+    this.hero.body!.setSize(CB_W, CB_H, false);
+    this.hero.body!.setOffset(CB_X, CB_Y);
     this.hero.body!.setGravityY(1400);
+
+    this.hero.anims.play('hero1_idle');
 
     // Hero name label (scrolls with the world)
     const activeHero = this.heroSystem.getById(this.context.activeHeroId);

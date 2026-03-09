@@ -19,7 +19,6 @@ import type { Hero }                    from '@data/Hero';
 import type { WindCorridor, WindJunction } from '@data/WindNetwork';
 import { fbm }                          from '@data/NoiseUtils';
 import type { ServiceBundle }           from '../../src/main';
-import cityZoomUrl                      from '@assets/sprites/CityZoom.png';
 
 export const WORLD_MAP_SCENE_KEY = 'WorldMapScene';
 
@@ -263,7 +262,7 @@ export class WorldMapScene extends Phaser.Scene {
 
   preload(): void {
     if (!this.textures.exists('city_zoom')) {
-      this.load.image('city_zoom', cityZoomUrl);
+      this.load.image('city_zoom', 'sprites/CityZoom.png');
     }
   }
 

@@ -21,6 +21,7 @@ export function createDefaultDraft(): AssetDraft {
     displayWidth: 160,
     displayHeight: 160,
     removeBackground: false,
+    cropToBoundingBox: false,
     enableOptimization: true,
     animationType: 'walk',
     columns: 6,
@@ -72,6 +73,7 @@ export function buildAssetMetadata(draft: AssetDraft, source: SourceInfo | null)
     optimization: {
       enabled: draft.enableOptimization,
       backgroundRemovalRequested: draft.removeBackground,
+      cropToBoundingBoxRequested: draft.cropToBoundingBox,
     },
     spritesheet: draft.mode === 'image' ? undefined : {
       columns: draft.columns,
@@ -184,6 +186,7 @@ export function buildDraftFromPersistedAsset(asset: PersistedAssetRecord): Asset
     displayWidth: asset.displaySize.width,
     displayHeight: asset.displaySize.height,
     removeBackground: asset.optimization.backgroundRemovalRequested,
+    cropToBoundingBox: asset.optimization.cropToBoundingBoxRequested ?? false,
     enableOptimization: asset.optimization.enabled,
     animationType: asset.spritesheet?.animationType ?? defaultDraft.animationType,
     columns: asset.spritesheet?.columns ?? 1,
