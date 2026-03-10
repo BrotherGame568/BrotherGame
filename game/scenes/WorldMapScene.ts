@@ -27,7 +27,7 @@ const SQRT3        = Math.sqrt(3);
 const WORLD_RADIUS = 60;   // large world — feel vast when panning
 const TILE_R       = 12;
 const TILE_SY      = 0.55;
-const GAME_RADIUS  = 1;   // city influence: city hex + immediate 6 neighbours
+const GAME_RADIUS  = 4;   // city influence: city hex + immediate 6 neighbours
 const LABEL_ZOOM   = 3.5;
 const MIN_ZOOM     = 0.12; // allows zooming out to see most of the map
 const MAX_ZOOM     = 14.0;
@@ -351,6 +351,7 @@ export class WorldMapScene extends Phaser.Scene {
       }
     });
 
+    this._renderTitleBar(W);
     this._renderHintLine(W, H, HINT_H);
     this._renderEndCycleButton(W, H);
 
@@ -959,6 +960,8 @@ export class WorldMapScene extends Phaser.Scene {
     this._buildFogOverlay();
     this._discoverReachableHexes();
     this._buildGameTiles();
+    this._buildAirOverlay();
+    this._airModeContainer?.setVisible(this._interactionMode === 'air');
     this._updateLabelVisibility();
     this._previewGfx?.clear();
 
