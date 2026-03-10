@@ -30,12 +30,12 @@ import { type WeaponDef, WEAPONS } from '../entities/Weapon';
 export const MISSION_SCENE_KEY = 'MissionScene';
 
 // ── Constants ────────────────────────────────────────────────
-const WORLD_W = 3600;
+const WORLD_W = 9000;
 const WORLD_H = 1080;
 const GROUND_BASE_Y = 900;    // Baseline ground level (lowest the terrain stays)
 const HERO_SPEED = 260;
 const JUMP_VELOCITY = -620;
-const TERRAIN_COLS = 72;       // Number of terrain columns (WORLD_W / COL_W)
+const TERRAIN_COLS = 180;      // Number of terrain columns (WORLD_W / COL_W)
 const COL_W = WORLD_W / TERRAIN_COLS;  // Width of each terrain column (50px)
 
 /** Tier → pickup colour. */
@@ -80,6 +80,7 @@ export class MissionScene extends Phaser.Scene {
   private groundGroup!: Phaser.Physics.Arcade.StaticGroup;
   private platformGroup!: Phaser.Physics.Arcade.StaticGroup;
   private pickupGroup!: Phaser.Physics.Arcade.Group;
+  private enemyGroup!: Phaser.Physics.Arcade.Group;
   private exitZone!: Phaser.GameObjects.Zone;
 
   // Mission state
@@ -123,6 +124,19 @@ export class MissionScene extends Phaser.Scene {
   };
   private heroHpDrawn = -1;
   private heroHpGfx!: Phaser.GameObjects.Graphics;
+
+  // Obstacles and moving platforms
+  private obstacleGroup!: Phaser.Physics.Arcade.StaticGroup;
+  private movingPlatformGroup!: Phaser.Physics.Arcade.StaticGroup;
+  private placedObstacles: Array<{ x: number; w: number }> = [];
+  // Shared registry of every placed platform rect (static + moving) for overlap rejection.
+  // Moving platforms register their full travel range as their x-extent.
+  private placedPlatforms: Array<{ minX: number; maxX: number; py: number; pw: number }> = [];
+  private movingPlatforms: Array<{
+    gfx: Phaser.GameObjects.Graphics;
+    zone: Phaser.GameObjects.Zone;
+    y: number; vx: number; minX: number; maxX: number;
+  }> = [];
 
   // Projectiles (spawned by ranged enemies)
   private projectiles: Array<{
@@ -176,11 +190,18 @@ export class MissionScene extends Phaser.Scene {
 
   create(): void {
     // ── Enemy spritesheet animations ───────────────────────────
+    const rootwalkerMeta = this.cache.json.get('rootwalker_walk_cycle_meta') as AssetMetadataRecord | undefined;
+    const houndMeta      = this.cache.json.get('hound_walk_cycle_meta')      as AssetMetadataRecord | undefined;
+    const spiderMeta     = this.cache.json.get('spiderwalkcycle_meta')       as AssetMetadataRecord | undefined;
+    const rootwalkerFps  = rootwalkerMeta?.spritesheet?.frameRate ?? 12;
+    const houndFps       = houndMeta?.spritesheet?.frameRate      ?? 12;
+    const spiderFps      = spiderMeta?.spritesheet?.frameRate     ?? 12;
+
     if (!this.anims.exists('rootwalker_walk')) {
       this.anims.create({
         key: 'rootwalker_walk',
         frames: this.anims.generateFrameNumbers('rootwalker_walk_cycle', { start: 0, end: 35 }),
-        frameRate: 12,
+        frameRate: rootwalkerFps,
         repeat: -1,
       });
     }
@@ -196,7 +217,7 @@ export class MissionScene extends Phaser.Scene {
       this.anims.create({
         key: 'hound_walk',
         frames: this.anims.generateFrameNumbers('hound_walk_cycle', { start: 0, end: 35 }),
-        frameRate: 12,
+        frameRate: houndFps,
         repeat: -1,
       });
     }
@@ -212,7 +233,7 @@ export class MissionScene extends Phaser.Scene {
       this.anims.create({
         key: 'spider_walk',
         frames: this.anims.generateFrameNumbers('spiderwalkcycle', { start: 0, end: 35 }),
-        frameRate: 12,
+        frameRate: spiderFps,
         repeat: -1,
       });
     }
@@ -295,7 +316,12 @@ export class MissionScene extends Phaser.Scene {
     // ── Ground ────────────────────────────────────────────
     this.groundGroup = this.physics.add.staticGroup();
     this.platformGroup = this.physics.add.staticGroup();
+    this.obstacleGroup = this.physics.add.staticGroup();
+    this.movingPlatformGroup = this.physics.add.staticGroup();
+    this.enemyGroup = this.physics.add.group();
     this._buildTerrain(biome);
+    this._buildObstacles(biome);
+    this._buildMovingPlatforms(biome);
 
     // ── Enemies ───────────────────────────────────────────
     this._spawnEnemies();
@@ -325,12 +351,29 @@ export class MissionScene extends Phaser.Scene {
     // ── Collisions ────────────────────────────────────────
     // Terrain traversal is handled manually in update() via _getGroundYInterp(),
     // so groundGroup needs no collider. platformGroup still uses physics.
-    this.physics.add.collider(this.hero, this.platformGroup, undefined, (hero, platform) => {
+    const oneWayFilter = ((hero: Phaser.Types.Physics.Arcade.GameObjectWithBody, platform: Phaser.Types.Physics.Arcade.GameObjectWithBody) => {
       const heroBody = (hero as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody).body!;
       const platBody = (platform as Phaser.GameObjects.Zone).body as Phaser.Physics.Arcade.StaticBody;
-      // Only collide when hero is moving downward and their feet are above the platform top
-      return heroBody.velocity.y >= 0 && heroBody.bottom <= platBody.top + 8;
-    }, this);
+      // Use the hero's bottom position from the START of this physics step (prev.y + height)
+      // instead of current bottom. This handles fast horizontal movement: even if the hero
+      // has tunneled partway into the platform this frame, we still allow the landing
+      // as long as they were above the platform surface at the start of the frame.
+      const prevBottom = heroBody.prev.y + heroBody.height;
+      return heroBody.velocity.y >= 0 && prevBottom <= platBody.top + 4;
+    }) as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback;
+    this.physics.add.collider(this.hero, this.platformGroup, undefined, oneWayFilter, this);
+    this.physics.add.collider(this.hero, this.movingPlatformGroup, undefined, oneWayFilter, this);
+    this.physics.add.collider(this.hero, this.obstacleGroup);
+    // Enemy-obstacle: only resolve side collisions. Phaser's least-penetration resolution
+    // can push a fast-moving enemy upward when it hits a column; filtering to side-hits
+    // (enemy centre-Y within the column's vertical extent) prevents that floating bug.
+    const enemyObstacleFilter = ((enemy: Phaser.Types.Physics.Arcade.GameObjectWithBody, obstacle: Phaser.Types.Physics.Arcade.GameObjectWithBody) => {
+      const eb = (enemy as Phaser.GameObjects.GameObject & { body: Phaser.Physics.Arcade.Body }).body;
+      const ob = (obstacle as Phaser.GameObjects.Zone).body as Phaser.Physics.Arcade.StaticBody;
+      const centerY = eb.y + eb.height / 2;
+      return centerY > ob.top && centerY < ob.bottom;
+    }) as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback;
+    this.physics.add.collider(this.enemyGroup, this.obstacleGroup, undefined, enemyObstacleFilter, this);
     this.physics.add.overlap(this.hero, this.pickupGroup, this._onPickup as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this);
     this.physics.add.overlap(this.hero, this.exitZone, this._onReachExit as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this);
 
@@ -408,6 +451,14 @@ export class MissionScene extends Phaser.Scene {
     const ptr = this.input.activePointer;
     this.heroFacing = ptr.worldX >= this.hero.x ? 1 : -1;
     this.hero.setFlipX(this.heroFacing < 0);
+    // Mirror the origin X every frame so the foot anchor stays planted when
+    // the sprite is flipped. origX in metadata assumes facing right;
+    // facing left needs 1 - origX so the anchor mirrors with the texture.
+    {
+      const av = this._heroAnim === 'attack' ? this._heroVisual.attack : this._heroVisual.walk;
+      const ox = this.heroFacing < 0 ? 1 - av.origX : av.origX;
+      this.hero.setOrigin(ox, av.origY);
+    }
 
     // ── Jump (double jump supported — Up, Space, or W) ────────────────────
     const jumpPressed = Phaser.Input.Keyboard.JustDown(this.cursors.up) ||
@@ -433,7 +484,7 @@ export class MissionScene extends Phaser.Scene {
         this.hero.anims.play('hero1_attack', true);
         const v = this._heroVisual.attack;
         this.hero.setDisplaySize(v.dw, v.dh);
-        this.hero.setOrigin(v.origX, v.origY);
+        this.hero.setOrigin(this.heroFacing < 0 ? 1 - v.origX : v.origX, v.origY);
       }
     } else if (isMoving) {
       if (this._heroAnim !== 'walk') {
@@ -441,7 +492,7 @@ export class MissionScene extends Phaser.Scene {
         this.hero.anims.play('hero1_walk', true);
         const v = this._heroVisual.walk;
         this.hero.setDisplaySize(v.dw, v.dh);
-        this.hero.setOrigin(v.origX, v.origY);
+        this.hero.setOrigin(this.heroFacing < 0 ? 1 - v.origX : v.origX, v.origY);
       }
     } else {
       if (this._heroAnim !== 'idle') {
@@ -449,7 +500,7 @@ export class MissionScene extends Phaser.Scene {
         this.hero.anims.play('hero1_idle', true);
         const v = this._heroVisual.walk; // idle uses walk cycle texture, same visual config
         this.hero.setDisplaySize(v.dw, v.dh);
-        this.hero.setOrigin(v.origX, v.origY);
+        this.hero.setOrigin(this.heroFacing < 0 ? 1 - v.origX : v.origX, v.origY);
       }
     }
 
@@ -495,11 +546,20 @@ export class MissionScene extends Phaser.Scene {
       if (this.activeSwing) {
         const sw = this.activeSwing;
         if (!sw.hit.has(enemy)) {
-            const dx = enemy.gameObject.x - sw.hx;
-            const dy = enemy.centerY    - sw.hy;
-            if (Math.sqrt(dx * dx + dy * dy) <= sw.range + 20) {
-              // Normalize enemy angle into [startA, startA + 2π) then check sweep
-              let enemyA = Math.atan2(dy, dx);
+            // Use the metadata collision box (hitRect) for hit detection so the
+            // hitbox matches exactly what was configured in the asset manager.
+            const hr = enemy.hitRect;
+            const hcx = hr.x + hr.width  / 2;   // hitbox centre X
+            const hcy = hr.y + hr.height / 2;   // hitbox centre Y
+            // Nearest point on the hitbox rect to the swing origin — for range gate
+            const npx = Math.max(hr.x, Math.min(hr.x + hr.width,  sw.hx));
+            const npy = Math.max(hr.y, Math.min(hr.y + hr.height, sw.hy));
+            const ndx = npx - sw.hx;
+            const ndy = npy - sw.hy;
+            if (Math.sqrt(ndx * ndx + ndy * ndy) <= sw.range + 20) {
+              // Angle test uses hitbox centre so wide enemies don't need
+              // the player to aim at the exact sprite pivot.
+              let enemyA = Math.atan2(hcy - sw.hy, hcx - sw.hx);
               while (enemyA < sw.startA) enemyA += 2 * Math.PI;
               while (enemyA >= sw.startA + 2 * Math.PI) enemyA -= 2 * Math.PI;
               if (enemyA <= sw.sweepA) {
@@ -582,6 +642,34 @@ export class MissionScene extends Phaser.Scene {
           if (this.heroHp <= 0) { this._completeMission('failure'); return; }
         }
       }
+    }
+
+    // ── Moving platforms ───────────────────────────────────────────────────
+    for (const mp of this.movingPlatforms) {
+      // Bounce at travel limits
+      let newX = mp.zone.x + mp.vx * dt;
+      if (newX <= mp.minX || newX >= mp.maxX) {
+        mp.vx = -mp.vx;
+        newX = Phaser.Math.Clamp(newX, mp.minX, mp.maxX);
+      }
+
+      // Carry the hero if standing on top (feet within 6px of platform top)
+      const platTop = mp.y;
+      const heroFeet = this.hero.body!.bottom;
+      const heroMidX = this.hero.x;
+      const halfPw = mp.zone.width / 2;
+      if (
+        Math.abs(heroFeet - platTop) < 6 &&
+        heroMidX >= newX - halfPw &&
+        heroMidX <= newX + halfPw
+      ) {
+        this.hero.x += newX - mp.zone.x;
+      }
+
+      // Reposition physics body and visual
+      (mp.zone.body as Phaser.Physics.Arcade.StaticBody).reset(newX, mp.y + 9);
+      mp.zone.setPosition(newX, mp.y + 9);
+      mp.gfx.setPosition(newX, mp.y);
     }
 
     // Update HUD
@@ -672,9 +760,52 @@ export class MissionScene extends Phaser.Scene {
     }
 
     // Smooth the heightmap with several passes of a weighted moving average.
-    // This reduces abrupt height differences between adjacent columns so the
-    // hero can traverse gradual slopes without getting blocked.
     for (let pass = 0; pass < 8; pass++) {
+      for (let col = 1; col < TERRAIN_COLS - 1; col++) {
+        heights[col] = Math.round(
+          (heights[col - 1]! + heights[col]! * 2 + heights[col + 1]!) / 4,
+        );
+      }
+    }
+
+    // ── Feature 4: Pit valleys ─────────────────────────────────────────────
+    // Carve 3–5 dramatic dip sections. Each dip is a cosine-shaped valley that
+    // drops well below the base line, creating visual gaps and slowing traversal.
+    const pitCount = 3 + Math.floor(danger / 2);
+    for (let p = 0; p < pitCount; p++) {
+      // Keep pits away from the start (col < 10) and end (col > TERRAIN_COLS - 12)
+      const centreCol = 10 + Math.floor(this._pseudoRandom(p * 67 + 13) * (TERRAIN_COLS - 25));
+      const halfWidth = 4 + Math.floor(this._pseudoRandom(p * 43 + 7) * 5); // 4–8 cols wide
+      const depth = 90 + this._pseudoRandom(p * 31) * 80; // 90–170px deep
+      for (let dc = -halfWidth; dc <= halfWidth; dc++) {
+        const c = centreCol + dc;
+        if (c < 1 || c >= TERRAIN_COLS - 1) continue;
+        const t = dc / halfWidth; // -1..1
+        const dip = Math.cos(t * Math.PI * 0.5) * depth; // cosine profile
+        heights[c] = Math.min(GROUND_BASE_Y + 20, heights[c]! + dip);
+      }
+    }
+
+    // ── Feature 5: Elevated plateaus ──────────────────────────────────────
+    // Raise 2–3 sections to form high shelves that the player must climb or
+    // navigate around via platforms.
+    const plateauCount = 2 + Math.floor(danger / 3);
+    for (let p = 0; p < plateauCount; p++) {
+      const centreCol = 15 + Math.floor(this._pseudoRandom(p * 89 + 41) * (TERRAIN_COLS - 30));
+      const halfWidth = 5 + Math.floor(this._pseudoRandom(p * 53 + 17) * 6); // 5–10 cols
+      const lift = 140 + this._pseudoRandom(p * 61) * 100; // 140–240px above baseline
+      for (let dc = -halfWidth; dc <= halfWidth; dc++) {
+        const c = centreCol + dc;
+        if (c < 1 || c >= TERRAIN_COLS - 1) continue;
+        const t = Math.abs(dc) / halfWidth;
+        // Flat top with slightly ramped edges
+        const raise = lift * (1 - t * 0.3);
+        heights[c] = Math.max(GROUND_BASE_Y - 280, heights[c]! - raise);
+      }
+    }
+
+    // Final 2-pass smooth to blend pit/plateau transitions with the surrounding terrain
+    for (let pass = 0; pass < 2; pass++) {
       for (let col = 1; col < TERRAIN_COLS - 1; col++) {
         heights[col] = Math.round(
           (heights[col - 1]! + heights[col]! * 2 + heights[col + 1]!) / 4,
@@ -746,30 +877,237 @@ export class MissionScene extends Phaser.Scene {
       detailGfx.lineBetween(bx, by, bx + 3, by - tuftH);
     }
 
-    // Floating platforms (number scales with danger level)
-    const platformCount = Math.min(8, Math.max(2, this.context.dangerLevel + 1));
-    const platformSpacing = (WORLD_W - 600) / (platformCount + 1);
+    // ── Jump physics constants (must match MissionScene update values) ──────
+    // JUMP_VELOCITY = -620, gravity = 1400 → max single-jump height ≈ 137px,
+    // full-arc air time ≈ 0.886s → max horizontal reach @ HERO_SPEED ≈ 230px.
+    const JUMP_REACH_H = 175; // comfortable center-to-center horizontal gap
+    const JUMP_REACH_V = 90;  // comfortable single-step climb height
+    const PLAT_H = 18;        // visual/physics height of every platform
 
-    for (let i = 0; i < platformCount; i++) {
-      const col = Math.floor(3 + (i + 1) * (TERRAIN_COLS - 6) / (platformCount + 1));
-      const surfaceY = this.heightMap[Math.min(col, TERRAIN_COLS - 1)]!;
-      const px = 300 + (i + 1) * platformSpacing + (this._pseudoRandom(i) * 40 - 20);
-      const py = surfaceY - 100 - (this._pseudoRandom(i + 100) * 80);
-      const pw = 90 + this._pseudoRandom(i + 200) * 70;
+    // Reset the shared registry at the start of terrain build so it's clean per scene create.
+    this.placedPlatforms = [];
+    this.placedObstacles = [];
 
-      // Platform visuals
+    /**
+     * Find the highest (lowest Y) terrain point under the platform's footprint.
+     * Samples 7 evenly-spaced X positions across the platform width.
+     */
+    const _minTerrainY = (px: number, pw: number): number => {
+      let minY = WORLD_H;
+      const samples = 7;
+      for (let s = 0; s <= samples; s++) {
+        const sx = px - pw / 2 + (s / samples) * pw;
+        minY = Math.min(minY, this._getGroundYInterp(sx));
+      }
+      return minY;
+    };
+
+    /**
+     * Attempt to place a platform.
+     * 1. Push py up so the platform bottom clears the terrain by at least 20px.
+     * 2. Reject if it overlaps any already-placed platform (static or moving).
+     * Returns true if placed, false if skipped.
+     */
+    const _placePlatform = (px: number, pyIn: number, pw: number): boolean => {
+      if (px < 80 || px > WORLD_W - 80) return false;
+
+      // Clamp py so the bottom edge (py + PLAT_H) is ≥20px above the terrain.
+      const clearance = 20;
+      const maxPy = _minTerrainY(px, pw) - PLAT_H - clearance;
+      const py = Math.min(pyIn, maxPy);
+
+      if (py < 80) return false; // too close to top of world
+
+      // Reject if this rect overlaps any previously placed platform.
+      // Add a 15px gutter on all sides so they never visually touch.
+      const gutter = 15;
+      const pMinX = px - pw / 2;
+      const pMaxX = px + pw / 2;
+      for (const p of this.placedPlatforms) {
+        const xOverlap = pMinX - gutter < p.maxX && pMaxX + gutter > p.minX;
+        const yOverlap = Math.abs(py - p.py) < PLAT_H + gutter;
+        if (xOverlap && yOverlap) return false;
+      }
+
+      this.placedPlatforms.push({ minX: pMinX, maxX: pMaxX, py, pw });
+
       const platGfx = this.add.graphics();
       platGfx.fillStyle(biome.platFill, 1);
-      platGfx.fillRoundedRect(px - pw / 2, py, pw, 18, 4);
+      platGfx.fillRoundedRect(px - pw / 2, py, pw, PLAT_H, 4);
       platGfx.lineStyle(2, biome.platEdge, 1);
-      platGfx.strokeRoundedRect(px - pw / 2, py, pw, 18, 4);
-
-      // Subtle underside shadow
+      platGfx.strokeRoundedRect(px - pw / 2, py, pw, PLAT_H, 4);
       platGfx.fillStyle(0x000000, 0.15);
-      platGfx.fillRect(px - pw / 2 + 4, py + 18, pw - 8, 6);
-
-      const platBody = this.add.zone(px, py + 9, pw, 18);
+      platGfx.fillRect(px - pw / 2 + 4, py + PLAT_H, pw - 8, 6);
+      const platBody = this.add.zone(px, py + PLAT_H / 2, pw, PLAT_H);
       this.platformGroup.add(platBody);
+      return true;
+    };
+
+    // ── Group 1: Scattered helper platforms ──────────────────────────────────
+    // Fewer, larger platforms that act as optional rest stops / shortcuts.
+    const scatterCount = Math.min(10, Math.max(3, this.context.dangerLevel * 2 + 1));
+    const scatterSpacing = (WORLD_W - 600) / (scatterCount + 1);
+    for (let i = 0; i < scatterCount; i++) {
+      const col = Math.floor(3 + (i + 1) * (TERRAIN_COLS - 6) / (scatterCount + 1));
+      const surfaceY = this.heightMap[Math.min(col, TERRAIN_COLS - 1)]!;
+      const px = 300 + (i + 1) * scatterSpacing + (this._pseudoRandom(i) * 60 - 30);
+      const py = surfaceY - 110 - this._pseudoRandom(i + 100) * 70;
+      const pw = 100 + this._pseudoRandom(i + 200) * 60; // generous width
+      _placePlatform(px, py, pw);
+    }
+
+    // ── Group 2: Jump-gap chains ───────────────────────────────────────────────
+    // Platforms spaced at exactly one running-jump apart horizontally.
+    // A gentle rise (15px/step) rewards good timing without being punishing.
+    const chainCount = 2 + Math.floor(this.context.dangerLevel / 2);
+    for (let c = 0; c < chainCount; c++) {
+      const anchorX = 500 + (c / chainCount) * (WORLD_W - 1400)
+        + this._pseudoRandom(c * 97 + 5) * 300;
+      const col = Math.floor(anchorX / COL_W);
+      const surfaceY = this.heightMap[Math.min(col, TERRAIN_COLS - 1)]!;
+      const anchorY = surfaceY - 100 - this._pseudoRandom(c * 71) * 60;
+      const steps = 4 + Math.floor(this._pseudoRandom(c * 53) * 3); // 4–6 platforms
+      const dir = this._pseudoRandom(c * 37) > 0.5 ? 1 : -1;
+
+      for (let step = 0; step < steps; step++) {
+        // Spacing jitter of ±15px keeps it slightly organic while still feeling deliberate
+        const jitter = (this._pseudoRandom(c * 100 + step * 17) - 0.5) * 30;
+        const px = anchorX + dir * step * (JUMP_REACH_H + jitter);
+        // Small progressive rise so the chain has a goal (ascends slightly)
+        const py = anchorY - step * 18 + (this._pseudoRandom(c * 100 + step * 29) - 0.5) * 8;
+        // Slightly narrower platforms as the chain progresses → harder to land
+        const pw = 85 - step * 4 + this._pseudoRandom(c * 100 + step * 41) * 15;
+        _placePlatform(px, py, Math.max(50, pw));
+      }
+    }
+
+    // ── Group 3: Vertical climbing towers ────────────────────────────────────
+    // Platforms stacked in a zigzag pattern, each ~JUMP_REACH_V above the last.
+    // These lead up to elevated terrain sections or just high vantage points.
+    const towerCount = 2 + Math.floor(this.context.dangerLevel / 2);
+    for (let t = 0; t < towerCount; t++) {
+      const anchorX = 900 + (t / towerCount) * (WORLD_W - 2200)
+        + this._pseudoRandom(t * 113 + 9) * 400;
+      const col = Math.floor(anchorX / COL_W);
+      const surfaceY = this.heightMap[Math.min(col, TERRAIN_COLS - 1)]!;
+      const steps = 5 + Math.floor(this._pseudoRandom(t * 79) * 4); // 5–8 steps
+      const baseDir = this._pseudoRandom(t * 43) > 0.5 ? 1 : -1;
+
+      for (let step = 0; step < steps; step++) {
+        // Zigzag: alternate sides so the player has to jump back and forth
+        const side = (step % 2 === 0 ? 1 : -1) * baseDir;
+        const px = anchorX + side * (JUMP_REACH_H * 0.55);
+        const py = surfaceY - JUMP_REACH_V * (step + 1) - 10;
+        // Narrower platforms higher up for a real challenge
+        const pw = 70 - step * 3 + this._pseudoRandom(t * 100 + step * 23) * 10;
+        _placePlatform(px, py, Math.max(45, pw));
+      }
+    }
+  }
+
+  // ── Obstacles ──────────────────────────────────────────
+
+  private _buildObstacles(biome: ReturnType<typeof this._getBiome>): void {
+    const count = 5 + Math.floor(this.context.dangerLevel * 1.5);
+    const gfx = this.add.graphics();
+
+    for (let i = 0; i < count; i++) {
+      // Spread obstacles across the world, away from spawn and exit
+      const x = 400 + this._pseudoRandom(i * 61 + 11) * (WORLD_W - 900);
+      const groundY = this._getGroundYInterp(x);
+      const w = 30 + this._pseudoRandom(i * 43) * 30;
+      const h = 60 + this._pseudoRandom(i * 29 + 5) * 80;
+      const top = groundY - h;
+
+      // Stone pillar visual
+      gfx.fillStyle(biome.groundDark, 1);
+      gfx.fillRect(x - w / 2, top, w, h);
+      gfx.lineStyle(2, biome.groundEdge, 0.6);
+      gfx.strokeRect(x - w / 2, top, w, h);
+      // Highlight stripe on left face
+      gfx.fillStyle(0xffffff, 0.07);
+      gfx.fillRect(x - w / 2, top, 5, h);
+      // Crenellation on top
+      const cW = Math.max(6, w / 4);
+      gfx.fillStyle(biome.groundDark, 1);
+      gfx.fillRect(x - w / 2, top - 10, cW, 10);
+      gfx.fillRect(x + w / 2 - cW, top - 10, cW, 10);
+      gfx.lineStyle(1, biome.groundEdge, 0.4);
+      gfx.strokeRect(x - w / 2, top - 10, cW, 10);
+      gfx.strokeRect(x + w / 2 - cW, top - 10, cW, 10);
+
+      // Physics zone — solid from all sides
+      const zone = this.add.zone(x, top + h / 2, w, h);
+      this.obstacleGroup.add(zone);
+      this.placedObstacles.push({ x, w });
+    }
+  }
+
+  // ── Moving platforms ────────────────────────────────────
+
+  private _buildMovingPlatforms(biome: ReturnType<typeof this._getBiome>): void {
+    const count = 2 + Math.floor(this.context.dangerLevel * 1.2);
+    const travelRange = 200 + this.context.dangerLevel * 40;
+    const PLAT_H = 18;
+    const clearance = 25;
+
+    // Use the shared registry (already populated by _buildTerrain) so moving platforms
+    // don't intersect static platforms either.
+
+    for (let i = 0; i < count; i++) {
+      const anchorX = 700 + this._pseudoRandom(i * 83 + 7) * (WORLD_W - 1500);
+      const pw = 80 + this._pseudoRandom(i * 31) * 60;
+      const speed = 60 + this._pseudoRandom(i * 59) * 80;
+      const vx = (this._pseudoRandom(i * 23) > 0.5 ? 1 : -1) * speed;
+      // Clamp travel limits so the platform never leaves the world
+      const minX = Math.max(pw / 2 + 50, anchorX - travelRange / 2);
+      const maxX = Math.min(WORLD_W - pw / 2 - 50, anchorX + travelRange / 2);
+
+      // Sample terrain height across the FULL travel path (including platform half-widths
+      // on both ends) so the platform never dips into the ground at any point in its sweep.
+      let minTerrainY = WORLD_H;
+      const samples = 14;
+      for (let s = 0; s <= samples; s++) {
+        const sx = (minX - pw / 2) + (s / samples) * (maxX - minX + pw);
+        minTerrainY = Math.min(minTerrainY, this._getGroundYInterp(
+          Math.max(0, Math.min(WORLD_W, sx)),
+        ));
+      }
+
+      // Desired height above anchor terrain; push up further if needed to clear path.
+      const col = Math.floor(anchorX / COL_W);
+      const surfaceY = this.heightMap[Math.min(col, TERRAIN_COLS - 1)]!;
+      const desiredPy = surfaceY - 120 - this._pseudoRandom(i * 47) * 100;
+      const py = Math.min(desiredPy, minTerrainY - PLAT_H - clearance);
+
+      if (py < 80) continue; // would be off-screen — skip
+
+      // Skip if the travel range overlaps another moving platform at a similar height.
+      let overlaps = false;
+      for (const p of this.placedPlatforms) {
+        const xOverlap = minX < p.maxX + pw / 2 && maxX > p.minX - pw / 2;
+        const yClose = Math.abs(py - p.py) < PLAT_H + 15;
+        if (xOverlap && yClose) { overlaps = true; break; }
+      }
+      if (overlaps) continue;
+
+      this.placedPlatforms.push({ minX, maxX, py, pw });
+
+      // Visual — white outline + arrow indicators to signal it moves
+      const gfx = this.add.graphics();
+      gfx.fillStyle(biome.platFill, 1);
+      gfx.fillRoundedRect(-pw / 2, 0, pw, PLAT_H, 4);
+      gfx.lineStyle(2, 0xffffff, 0.35);
+      gfx.strokeRoundedRect(-pw / 2, 0, pw, PLAT_H, 4);
+      gfx.fillStyle(0xffffff, 0.2);
+      gfx.fillTriangle(-pw / 2 + 8, 9, -pw / 2 + 18, 4, -pw / 2 + 18, 14);
+      gfx.fillTriangle(pw / 2 - 8, 9, pw / 2 - 18, 4, pw / 2 - 18, 14);
+      gfx.setPosition(anchorX, py);
+
+      const zone = this.add.zone(anchorX, py + PLAT_H / 2, pw, PLAT_H);
+      this.movingPlatformGroup.add(zone);
+
+      this.movingPlatforms.push({ gfx, zone, y: py, vx, minX, maxX });
     }
   }
 
@@ -796,9 +1134,23 @@ export class MissionScene extends Phaser.Scene {
       EnemyType: new (s: Phaser.Scene, c: { x: number; patrolRange: number; visual?: EnemyVisualConfig }, g: (x: number) => number) => Enemy,
       visual?: EnemyVisualConfig,
     ) => {
-      const x = 200 + (slot + 1) * spacing + (this._pseudoRandom(slot * 13 + 7) - 0.5) * 80;
+      let x = 200 + (slot + 1) * spacing + (this._pseudoRandom(slot * 13 + 7) - 0.5) * 80;
+      // Push spawn clear of all pillars. Loop until stable — shifting past one
+      // pillar may land on the next, so re-check until no overlaps remain.
+      let dirty = true;
+      while (dirty) {
+        dirty = false;
+        for (const obs of this.placedObstacles) {
+          if (Math.abs(x - obs.x) < obs.w / 2 + 60) {
+            x = obs.x + obs.w / 2 + 60;
+            dirty = true;
+          }
+        }
+      }
       const patrolRange = 80 + this._pseudoRandom(slot * 31) * 80;
-      this.enemies.push(new EnemyType(this, { x, patrolRange, visual }, gt));
+      const enemy = new EnemyType(this, { x, patrolRange, visual }, gt);
+      this.enemies.push(enemy);
+      this.enemyGroup.add(enemy.gameObject);
       slot++;
     };
 

@@ -92,12 +92,13 @@ export abstract class Enemy {
   private readonly bodyGroundOffsetY: number;
 
   // Knockback
-  private knockbackUntil = 0;
-  private knockbackVelX  = 0;
+  private knockbackUntil     = 0;
+  private knockbackVelX      = 0;
+  private knockbackStartTime = 0;
 
-  // HP bar cache — avoid redrawing when nothing changed
-  private lastHpDrawn = -1;
-  private lastHpBarX  = NaN;
+  // HP bar visibility
+  private hpBarVisibleUntil = 0;
+  private readonly HP_BAR_DURATION = 2500;
 
   // Attack state machine
   private attackState: AttackState = 'patrol';
@@ -174,14 +175,33 @@ export abstract class Enemy {
     const groundY = this.getGroundY(this.sprite.x);
     const groundedSpriteY = groundY + this.groundOffsetY;
 
-    // Terrain following
-    if (!this.isGrounded && body.velocity.y >= 0 && this.sprite.y >= groundedSpriteY - 1) {
+    const inKnockback = this.scene.time.now < this.knockbackUntil;
+
+    // Terrain following.
+    // check 2 is skipped during knockback so the arc (which moves sprite above groundedSpriteY)
+    // doesn't falsely un-ground the enemy. The pin (check 3) always runs while isGrounded;
+    // the arc override below then shifts the body/sprite upward for the visual pop.
+    // During a dash the enemy travels ~8.7 px/frame. At that speed they can become
+    // un-grounded at a cliff edge and then immediately re-ground on terrain that happens
+    // to be at the same height on the other side — effectively flying over the gap.
+    // Stricter re-ground: during an active dash the enemy must physically be AT or BELOW
+    // the terrain surface (no 1 px margin) so they can't skip over valleys.
+    const isActiveDash = !inKnockback && this.attackState === 'attacking' && this.stats.attackType === 'dash';
+    const regroundFloor = isActiveDash ? groundedSpriteY : groundedSpriteY - 1;
+    if (!this.isGrounded && body.velocity.y >= 0 && this.sprite.y >= regroundFloor) {
       this.isGrounded = true;
     }
-    if (this.isGrounded && (body.velocity.y < -50 || this.sprite.y < groundedSpriteY - 4)) {
+    if (!inKnockback && this.isGrounded && (body.velocity.y < -50 || this.sprite.y < groundedSpriteY - 4)) {
       this.isGrounded = false;
     }
-    if (this.isGrounded && !body.blocked.down) {
+    // Enemies have no platform colliders, so the only thing that can set body.blocked.down
+    // is a column top or world bounds. We always want terrain-following to win, so the
+    // !body.blocked.down guard is intentionally omitted here (unlike the hero).
+    // During an active dash, force-pin to terrain even if isGrounded is false — same
+    // unconditional snap that walking gets, so the dash follows slopes/cliffs instead of
+    // continuing at the same height through open air.
+    if (isActiveDash) this.isGrounded = true;
+    if (this.isGrounded) {
       this.sprite.y = groundedSpriteY;
       body.y = groundY - body.height + this.bodyGroundOffsetY;
       body.prev.y = body.y;
@@ -189,7 +209,21 @@ export abstract class Enemy {
       body.velocity.y = 0;
     }
 
-    const inKnockback = this.scene.time.now < this.knockbackUntil;
+    // Visual knockback arc — purely a sprite offset applied after the terrain pin.
+    // The body stays pinned at ground level; only sprite.y is shifted for the visual pop.
+    // This keeps the physics body grounded and avoids any interaction with obstacle colliders.
+    if (inKnockback) {
+      const ARC_DURATION = 240; // ms — shorter than the 300 ms knockback window
+      const ARC_HEIGHT   = 30;  // px — maximum height of the visual pop
+      const elapsed = this.scene.time.now - this.knockbackStartTime;
+      if (elapsed < ARC_DURATION) {
+        const t = elapsed / ARC_DURATION;
+        // Parabola: 0 at t=0 and t=1, most negative (upward in screen-Y) at t=0.5
+        this.sprite.y += 4 * ARC_HEIGHT * t * (t - 1); // negative = upward
+      }
+    }
+
+    // inKnockback is already computed above
     if (inKnockback) {
       body.setVelocityX(this.knockbackVelX);
       // Interrupt any active telegraph or attack
@@ -229,8 +263,8 @@ export abstract class Enemy {
           body.setVelocityX(0);
           this._showTelegraph();
         } else {
-          if (this.sprite.x <= this.patrolLeft)  this.direction = 1;
-          if (this.sprite.x >= this.patrolRight) this.direction = -1;
+          if (this.sprite.x <= this.patrolLeft  || body.blocked.left)  this.direction = 1;
+          if (this.sprite.x >= this.patrolRight || body.blocked.right) this.direction = -1;
           body.setVelocityX(this.direction * this.stats.moveSpeed);
         }
         break;
@@ -254,8 +288,8 @@ export abstract class Enemy {
 
       case 'cooldown':
         // Resume patrol during cooldown
-        if (this.sprite.x <= this.patrolLeft)  this.direction = 1;
-        if (this.sprite.x >= this.patrolRight) this.direction = -1;
+        if (this.sprite.x <= this.patrolLeft  || body.blocked.left)  this.direction = 1;
+        if (this.sprite.x >= this.patrolRight || body.blocked.right) this.direction = -1;
         body.setVelocityX(this.direction * this.stats.moveSpeed);
         if (now >= this.attackStateUntil) {
           this.attackState = 'patrol';
@@ -344,36 +378,45 @@ export abstract class Enemy {
 
   // ── HP bar ───────────────────────────────────────────────────
   private _drawHpBar(): void {
-    const sx = this.sprite.x;
-    if (this.hp === this.lastHpDrawn && sx === this.lastHpBarX) return;
-    this.lastHpDrawn = this.hp;
-    this.lastHpBarX  = sx;
+    const now = this.scene.time.now;
+    if (now > this.hpBarVisibleUntil) {
+      this.hpBar.clear();
+      return;
+    }
 
-    const sy   = this.sprite.y - this.stats.bodyH - 6;
-    const barW = Math.max(this.stats.bodyW, 24);
+    // Fade out over the last 700 ms of the visible window
+    const remaining = this.hpBarVisibleUntil - now;
+    const fadeAlpha = Math.min(1, remaining / 700);
+
+    const body = this.sprite.body as Phaser.Physics.Arcade.Body;
+    const sx   = this.sprite.x;
+    const sy   = body.y - 10;
+    const barW = Math.max(body.width, 24);
     const pct  = this.hp / this.stats.maxHp;
 
     this.hpBar.clear();
-    this.hpBar.fillStyle(0x220000, 0.85);
+    this.hpBar.fillStyle(0x220000, 0.85 * fadeAlpha);
     this.hpBar.fillRect(sx - barW / 2, sy, barW, 4);
     const fillColor = pct > 0.6 ? 0x22ee44 : pct > 0.3 ? 0xffaa00 : 0xff2200;
-    this.hpBar.fillStyle(fillColor, 1);
+    this.hpBar.fillStyle(fillColor, fadeAlpha);
     this.hpBar.fillRect(sx - barW / 2, sy, barW * pct, 4);
   }
 
   // ── Combat API ───────────────────────────────────────────────
   takeDamage(amount: number): void {
     this.hp = Math.max(0, this.hp - amount);
+    this.hpBarVisibleUntil = this.scene.time.now + this.HP_BAR_DURATION;
     this.sprite.setTint(0xffffff);
     this.scene.time.delayedCall(80, () => { this.sprite.clearTint(); });
   }
 
   /** Push the enemy away. dirX: 1 = push right, -1 = push left. */
   knockback(dirX: 1 | -1): void {
-    this.knockbackUntil = this.scene.time.now + 300;
-    this.knockbackVelX  = dirX * 480;
-    this.sprite.body!.setVelocityY(-280);
-    this.isGrounded = false;
+    this.knockbackUntil     = this.scene.time.now + 300;
+    this.knockbackVelX      = dirX * 480;
+    this.knockbackStartTime = this.scene.time.now;
+    // No vertical impulse on the physics body — the visual pop is handled by the arc
+    // override in update(), keeping the body grounded so terrain-following never breaks.
     this.sprite.setAlpha(0.35);
     this.scene.time.delayedCall(120, () => { this.sprite.setAlpha(1); });
   }
@@ -387,6 +430,16 @@ export abstract class Enemy {
   get centerY(): number {
     const body = this.sprite.body as Phaser.Physics.Arcade.Body;
     return body.y + body.height / 2;
+  }
+
+  /**
+   * World-space bounding rect of the metadata collision box.
+   * Use this for player-attack hit detection instead of the sprite origin so
+   * the hitbox matches exactly what was tuned in the asset manager.
+   */
+  get hitRect(): { x: number; y: number; width: number; height: number } {
+    const body = this.sprite.body as Phaser.Physics.Arcade.Body;
+    return { x: body.x, y: body.y, width: body.width, height: body.height };
   }
 
   /** Returns higher damage when mid-dash so the lunge hurts more than a brush. */
