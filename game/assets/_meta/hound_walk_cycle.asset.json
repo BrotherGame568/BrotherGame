@@ -1,0 +1,52 @@
+{
+  "id": "hound_walk_cycle",
+  "name": "Hound Walk Cycle",
+  "status": "active",
+  "category": "animations",
+  "mode": "spritesheet",
+  "outputFormat": "webp",
+  "maintainAspectRatio": true,
+  "resizeFit": "contain",
+  "outputRelativePath": "game/assets/animations/hound_walk_cycle.webp",
+  "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\animations\\hound_walk_cycle.webp",
+  "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\hound_walk_cycle.asset.json",
+  "metadataRelativePath": "game/assets/_meta/hound_walk_cycle.asset.json",
+  "exportSize": {
+    "width": 213,
+    "height": 120
+  },
+  "displaySize": {
+    "width": 195,
+    "height": 110
+  },
+  "optimization": {
+    "enabled": true,
+    "backgroundRemovalRequested": false,
+    "notes": []
+  },
+  "spritesheet": {
+    "columns": 6,
+    "rows": 6,
+    "frameRate": 8,
+    "animationType": "walk",
+    "origin": {
+      "x": 0.47,
+      "y": 0.9
+    },
+    "collisionBox": {
+      "x": 11,
+      "y": 6,
+      "width": 141,
+      "height": 95
+    },
+    "frameCount": 36
+  },
+  "source": {
+    "kind": "image",
+    "name": "hound_walk_cycle.webp",
+    "mimeType": "image/webp",
+    "sizeBytes": 177164
+  },
+  "generatedAt": "2026-03-10T01:16:15.000Z",
+  "notes": ""
+}

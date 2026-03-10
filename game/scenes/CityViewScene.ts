@@ -19,7 +19,6 @@ import type { IGameStateManager } from '@systems/IGameStateManager';
 import type { IHeroSystem } from '@systems/IHeroSystem';
 import type { IResourceSystem } from '@systems/IResourceSystem';
 import type { ServiceBundle } from '../../src/main';
-import cityBgUrl from '@assets/backgrounds/City_Close_View_Basic.png';
 
 export const CITY_VIEW_SCENE_KEY = 'CityViewScene';
 
@@ -59,7 +58,7 @@ export class CityViewScene extends Phaser.Scene {
 
   preload(): void {
     if (!this.textures.exists('city_bg')) {
-      this.load.image('city_bg', cityBgUrl);
+      this.load.image('city_bg', 'backgrounds/City_Close_View_Basic.png');
     }
   }
 

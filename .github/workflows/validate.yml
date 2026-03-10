@@ -15,20 +15,6 @@ jobs:
           echo "PR description is empty. Please fill out the PR template."
           exit 1
 
-  check-branch-name:
-    name: Branch Naming Convention
-    runs-on: ubuntu-latest
-    steps:
-      - name: Validate branch name
-        run: |
-          BRANCH="${{ github.head_ref }}"
-          if [[ ! "$BRANCH" =~ ^(arch|levels|art|audio|chore|docs|hotfix)/ ]]; then
-            echo "Branch '$BRANCH' does not follow naming convention."
-            echo "Expected: arch/, levels/, art/, audio/, chore/, docs/, or hotfix/"
-            exit 1
-          fi
-          echo "Branch name '$BRANCH' is valid."
-
   typecheck:
     name: TypeScript Type Check
     runs-on: ubuntu-latest

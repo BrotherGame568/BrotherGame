@@ -96,6 +96,7 @@ Each hero atlas must include animation frame sets named: `idle`, `run`, `jump`, 
 | `mission_tileset_forest` | Forest biome tileset | `sprites/mission/tileset_forest.png` + `.json` | TBD | atlas | placeholder |
 | `mission_tileset_ruins` | Ruins biome tileset | `sprites/mission/tileset_ruins.png` + `.json` | TBD | atlas | placeholder |
 | `enemy_spritesheet_grunt` | Basic enemy spritesheet | `sprites/enemies/grunt.png` + `.json` | 48×48/frame | atlas | placeholder |
+| `rootwalker` | RootWalker large-enemy walk cycle (6×6 sheet) | `animations/RootWalker-Walk-cycle.webp` | 466×466/frame | webp spritesheet | wip |
 | `pickup_tier1` | Tier 1 resource pickup icon | `sprites/pickups/pickup_tier1.png` | 24×24 | png | placeholder |
 | `pickup_tier2` | Tier 2 resource pickup icon | `sprites/pickups/pickup_tier2.png` | 24×24 | png | placeholder |
 | `pickup_tier3` | Tier 3 resource pickup icon | `sprites/pickups/pickup_tier3.png` | 24×24 | png | placeholder |

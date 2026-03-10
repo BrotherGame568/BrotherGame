@@ -1,0 +1,62 @@
+{
+  "id": "spiderwalkcycle",
+  "name": "Spider Walk Cycle",
+  "status": "active",
+  "category": "animations",
+  "mode": "video",
+  "outputFormat": "webp",
+  "maintainAspectRatio": true,
+  "resizeFit": "contain",
+  "outputRelativePath": "game/assets/animations/spiderwalkcycle.webp",
+  "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\animations\\spiderwalkcycle.webp",
+  "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\spiderwalkcycle.asset.json",
+  "metadataRelativePath": "game/assets/_meta/spiderwalkcycle.asset.json",
+  "exportSize": {
+    "width": 213,
+    "height": 120
+  },
+  "displaySize": {
+    "width": 90,
+    "height": 51
+  },
+  "optimization": {
+    "enabled": true,
+    "backgroundRemovalRequested": true,
+    "notes": [
+      "Video processed into spritesheet with local FFmpeg extraction.",
+      "Frames were sampled evenly across the trimmed clip.",
+      "Local matte background removal applied to extracted frames."
+    ]
+  },
+  "spritesheet": {
+    "columns": 6,
+    "rows": 6,
+    "frameRate": 12,
+    "animationType": "walk",
+    "origin": {
+      "x": 0.45,
+      "y": 0.77
+    },
+    "collisionBox": {
+      "x": 13,
+      "y": 4,
+      "width": 62,
+      "height": 36
+    },
+    "frameCount": 36
+  },
+  "video": {
+    "trimStartSeconds": 0,
+    "trimEndSeconds": 0,
+    "requestedFrameRate": 12,
+    "sampling": "spread"
+  },
+  "source": {
+    "kind": "video",
+    "name": "Walk_cycle_animation_f09d076f19.mp4",
+    "mimeType": "video/mp4",
+    "sizeBytes": 4868099
+  },
+  "generatedAt": "2026-03-08T01:57:55.979Z",
+  "notes": ""
+}

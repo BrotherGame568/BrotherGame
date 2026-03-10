@@ -78,6 +78,7 @@ BrotherGame/
 │       ├── sfx/
 │       └── ambience/
 ├── tools/                        # Build helpers, asset pipeline scripts
+│   └── asset_pipeline/           # Standalone asset manager app + backend
 ├── package.json
 ├── tsconfig.json
 └── vite.config.ts
@@ -132,5 +133,28 @@ npm install
 npm run dev        # launch blank Phaser window in browser
 npm run typecheck  # must pass before any PR
 ```
+
+## Asset Manager
+
+The repo includes a standalone asset-management tool for importing, previewing, processing, and maintaining saved assets.
+
+- Tool location: [tools/asset_pipeline](tools/asset_pipeline)
+- Tool guide: [tools/asset_pipeline/README.md](tools/asset_pipeline/README.md)
+
+Common scripts from the repo root:
+
+```bash
+npm run asset-manager:start   # recommended: start both together
+npm run asset-manager:server  # start only the local backend
+npm run asset-manager:dev     # start only the frontend
+npm run asset-manager:build   # validate the tool build
+```
+
+Use the asset manager to:
+
+- add new image, spritesheet, and video-derived assets
+- browse the saved asset library
+- edit existing assets without creating duplicates
+- update generated asset metadata and manifests
 
 See [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md) for full workflow.
