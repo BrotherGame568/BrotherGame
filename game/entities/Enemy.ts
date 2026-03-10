@@ -96,9 +96,9 @@ export abstract class Enemy {
   private knockbackVelX      = 0;
   private knockbackStartTime = 0;
 
-  // HP bar cache — avoid redrawing when nothing changed
-  private lastHpDrawn = -1;
-  private lastHpBarX  = NaN;
+  // HP bar visibility
+  private hpBarVisibleUntil = 0;
+  private readonly HP_BAR_DURATION = 2500;
 
   // Attack state machine
   private attackState: AttackState = 'patrol';
@@ -378,26 +378,34 @@ export abstract class Enemy {
 
   // ── HP bar ───────────────────────────────────────────────────
   private _drawHpBar(): void {
-    const sx = this.sprite.x;
-    if (this.hp === this.lastHpDrawn && sx === this.lastHpBarX) return;
-    this.lastHpDrawn = this.hp;
-    this.lastHpBarX  = sx;
+    const now = this.scene.time.now;
+    if (now > this.hpBarVisibleUntil) {
+      this.hpBar.clear();
+      return;
+    }
 
-    const sy   = this.sprite.y - this.stats.bodyH - 6;
-    const barW = Math.max(this.stats.bodyW, 24);
+    // Fade out over the last 700 ms of the visible window
+    const remaining = this.hpBarVisibleUntil - now;
+    const fadeAlpha = Math.min(1, remaining / 700);
+
+    const body = this.sprite.body as Phaser.Physics.Arcade.Body;
+    const sx   = this.sprite.x;
+    const sy   = body.y - 10;
+    const barW = Math.max(body.width, 24);
     const pct  = this.hp / this.stats.maxHp;
 
     this.hpBar.clear();
-    this.hpBar.fillStyle(0x220000, 0.85);
+    this.hpBar.fillStyle(0x220000, 0.85 * fadeAlpha);
     this.hpBar.fillRect(sx - barW / 2, sy, barW, 4);
     const fillColor = pct > 0.6 ? 0x22ee44 : pct > 0.3 ? 0xffaa00 : 0xff2200;
-    this.hpBar.fillStyle(fillColor, 1);
+    this.hpBar.fillStyle(fillColor, fadeAlpha);
     this.hpBar.fillRect(sx - barW / 2, sy, barW * pct, 4);
   }
 
   // ── Combat API ───────────────────────────────────────────────
   takeDamage(amount: number): void {
     this.hp = Math.max(0, this.hp - amount);
+    this.hpBarVisibleUntil = this.scene.time.now + this.HP_BAR_DURATION;
     this.sprite.setTint(0xffffff);
     this.scene.time.delayedCall(80, () => { this.sprite.clearTint(); });
   }
@@ -422,6 +430,16 @@ export abstract class Enemy {
   get centerY(): number {
     const body = this.sprite.body as Phaser.Physics.Arcade.Body;
     return body.y + body.height / 2;
+  }
+
+  /**
+   * World-space bounding rect of the metadata collision box.
+   * Use this for player-attack hit detection instead of the sprite origin so
+   * the hitbox matches exactly what was tuned in the asset manager.
+   */
+  get hitRect(): { x: number; y: number; width: number; height: number } {
+    const body = this.sprite.body as Phaser.Physics.Arcade.Body;
+    return { x: body.x, y: body.y, width: body.width, height: body.height };
   }
 
   /** Returns higher damage when mid-dash so the lunge hurts more than a brush. */

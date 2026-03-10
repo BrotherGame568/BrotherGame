@@ -190,11 +190,18 @@ export class MissionScene extends Phaser.Scene {
 
   create(): void {
     // ── Enemy spritesheet animations ───────────────────────────
+    const rootwalkerMeta = this.cache.json.get('rootwalker_walk_cycle_meta') as AssetMetadataRecord | undefined;
+    const houndMeta      = this.cache.json.get('hound_walk_cycle_meta')      as AssetMetadataRecord | undefined;
+    const spiderMeta     = this.cache.json.get('spiderwalkcycle_meta')       as AssetMetadataRecord | undefined;
+    const rootwalkerFps  = rootwalkerMeta?.spritesheet?.frameRate ?? 12;
+    const houndFps       = houndMeta?.spritesheet?.frameRate      ?? 12;
+    const spiderFps      = spiderMeta?.spritesheet?.frameRate     ?? 12;
+
     if (!this.anims.exists('rootwalker_walk')) {
       this.anims.create({
         key: 'rootwalker_walk',
         frames: this.anims.generateFrameNumbers('rootwalker_walk_cycle', { start: 0, end: 35 }),
-        frameRate: 12,
+        frameRate: rootwalkerFps,
         repeat: -1,
       });
     }
@@ -210,7 +217,7 @@ export class MissionScene extends Phaser.Scene {
       this.anims.create({
         key: 'hound_walk',
         frames: this.anims.generateFrameNumbers('hound_walk_cycle', { start: 0, end: 35 }),
-        frameRate: 12,
+        frameRate: houndFps,
         repeat: -1,
       });
     }
@@ -226,7 +233,7 @@ export class MissionScene extends Phaser.Scene {
       this.anims.create({
         key: 'spider_walk',
         frames: this.anims.generateFrameNumbers('spiderwalkcycle', { start: 0, end: 35 }),
-        frameRate: 12,
+        frameRate: spiderFps,
         repeat: -1,
       });
     }
@@ -444,6 +451,14 @@ export class MissionScene extends Phaser.Scene {
     const ptr = this.input.activePointer;
     this.heroFacing = ptr.worldX >= this.hero.x ? 1 : -1;
     this.hero.setFlipX(this.heroFacing < 0);
+    // Mirror the origin X every frame so the foot anchor stays planted when
+    // the sprite is flipped. origX in metadata assumes facing right;
+    // facing left needs 1 - origX so the anchor mirrors with the texture.
+    {
+      const av = this._heroAnim === 'attack' ? this._heroVisual.attack : this._heroVisual.walk;
+      const ox = this.heroFacing < 0 ? 1 - av.origX : av.origX;
+      this.hero.setOrigin(ox, av.origY);
+    }
 
     // ── Jump (double jump supported — Up, Space, or W) ────────────────────
     const jumpPressed = Phaser.Input.Keyboard.JustDown(this.cursors.up) ||
@@ -469,7 +484,7 @@ export class MissionScene extends Phaser.Scene {
         this.hero.anims.play('hero1_attack', true);
         const v = this._heroVisual.attack;
         this.hero.setDisplaySize(v.dw, v.dh);
-        this.hero.setOrigin(v.origX, v.origY);
+        this.hero.setOrigin(this.heroFacing < 0 ? 1 - v.origX : v.origX, v.origY);
       }
     } else if (isMoving) {
       if (this._heroAnim !== 'walk') {
@@ -477,7 +492,7 @@ export class MissionScene extends Phaser.Scene {
         this.hero.anims.play('hero1_walk', true);
         const v = this._heroVisual.walk;
         this.hero.setDisplaySize(v.dw, v.dh);
-        this.hero.setOrigin(v.origX, v.origY);
+        this.hero.setOrigin(this.heroFacing < 0 ? 1 - v.origX : v.origX, v.origY);
       }
     } else {
       if (this._heroAnim !== 'idle') {
@@ -485,7 +500,7 @@ export class MissionScene extends Phaser.Scene {
         this.hero.anims.play('hero1_idle', true);
         const v = this._heroVisual.walk; // idle uses walk cycle texture, same visual config
         this.hero.setDisplaySize(v.dw, v.dh);
-        this.hero.setOrigin(v.origX, v.origY);
+        this.hero.setOrigin(this.heroFacing < 0 ? 1 - v.origX : v.origX, v.origY);
       }
     }
 
@@ -531,11 +546,20 @@ export class MissionScene extends Phaser.Scene {
       if (this.activeSwing) {
         const sw = this.activeSwing;
         if (!sw.hit.has(enemy)) {
-            const dx = enemy.gameObject.x - sw.hx;
-            const dy = enemy.centerY    - sw.hy;
-            if (Math.sqrt(dx * dx + dy * dy) <= sw.range + 20) {
-              // Normalize enemy angle into [startA, startA + 2π) then check sweep
-              let enemyA = Math.atan2(dy, dx);
+            // Use the metadata collision box (hitRect) for hit detection so the
+            // hitbox matches exactly what was configured in the asset manager.
+            const hr = enemy.hitRect;
+            const hcx = hr.x + hr.width  / 2;   // hitbox centre X
+            const hcy = hr.y + hr.height / 2;   // hitbox centre Y
+            // Nearest point on the hitbox rect to the swing origin — for range gate
+            const npx = Math.max(hr.x, Math.min(hr.x + hr.width,  sw.hx));
+            const npy = Math.max(hr.y, Math.min(hr.y + hr.height, sw.hy));
+            const ndx = npx - sw.hx;
+            const ndy = npy - sw.hy;
+            if (Math.sqrt(ndx * ndx + ndy * ndy) <= sw.range + 20) {
+              // Angle test uses hitbox centre so wide enemies don't need
+              // the player to aim at the exact sprite pivot.
+              let enemyA = Math.atan2(hcy - sw.hy, hcx - sw.hx);
               while (enemyA < sw.startA) enemyA += 2 * Math.PI;
               while (enemyA >= sw.startA + 2 * Math.PI) enemyA -= 2 * Math.PI;
               if (enemyA <= sw.sweepA) {

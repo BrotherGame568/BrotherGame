@@ -185,7 +185,7 @@ export function buildDraftFromPersistedAsset(asset: PersistedAssetRecord): Asset
     exportHeight: asset.exportSize.height,
     displayWidth: asset.displaySize.width,
     displayHeight: asset.displaySize.height,
-    removeBackground: asset.optimization.backgroundRemovalRequested,
+    removeBackground: false,
     cropToBoundingBox: asset.optimization.cropToBoundingBoxRequested ?? false,
     enableOptimization: asset.optimization.enabled,
     animationType: asset.spritesheet?.animationType ?? defaultDraft.animationType,
