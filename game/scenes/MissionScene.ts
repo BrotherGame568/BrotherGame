@@ -24,7 +24,7 @@ import type { IAudioService } from '@services/IAudioService';
 import type { MissionContext, MissionResult } from '@data/MissionContext';
 import type { ResourceSurface } from '@data/HexTile';
 import type { ServiceBundle } from '../../src/main';
-import { Enemy, SmallEnemy, MediumEnemy, LargeEnemy, type EnemyVisualConfig, type PendingProjectile } from '../entities/Enemy';
+import { Enemy, SmallEnemy, MediumEnemy, LargeEnemy, FlyingDasher, FlyingShooter, type EnemyVisualConfig, type PendingProjectile } from '../entities/Enemy';
 import { type WeaponDef, WEAPONS } from '../entities/Weapon';
 
 export const MISSION_SCENE_KEY = 'MissionScene';
@@ -142,7 +142,8 @@ export class MissionScene extends Phaser.Scene {
   private projectiles: Array<{
     gfx: Phaser.GameObjects.Graphics;
     x: number; y: number;
-    velX: number;
+    velX: number; velY: number;
+    radius: number;
     damage: number;
     expiresAt: number;
   }> = [];
@@ -613,21 +614,23 @@ export class MissionScene extends Phaser.Scene {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i]!;
       p.x += p.velX * dt;
+      p.y += p.velY * dt;
 
-      if (now >= p.expiresAt || p.x < 0 || p.x > WORLD_W) {
+      if (now >= p.expiresAt || p.x < 0 || p.x > WORLD_W || p.y > WORLD_H) {
         p.gfx.destroy();
         this.projectiles.splice(i, 1);
         continue;
       }
 
-      // Redraw as a glowing orb
+      // Redraw as a glowing orb — size scales with p.radius
+      const r = p.radius;
       p.gfx.clear();
       p.gfx.fillStyle(0xff4400, 0.35);
-      p.gfx.fillCircle(p.x, p.y, 13);
+      p.gfx.fillCircle(p.x, p.y, r * 1.85);
       p.gfx.fillStyle(0xff7733, 1);
-      p.gfx.fillCircle(p.x, p.y, 7);
+      p.gfx.fillCircle(p.x, p.y, r);
       p.gfx.fillStyle(0xffdd88, 0.9);
-      p.gfx.fillCircle(p.x, p.y, 3);
+      p.gfx.fillCircle(p.x, p.y, r * 0.43);
 
       // Hero collision
       if (now >= this.heroInvincibleUntil) {
@@ -1121,14 +1124,17 @@ export class MissionScene extends Phaser.Scene {
     const smallEnemyVisual  = this._getEnemyVisualConfig('spiderwalkcycle_meta');
 
     // Scale counts with danger level (1–5)
-    const smallCount  = Math.min(danger + 1, 5);
-    const mediumCount = Math.max(0, danger - 1);
-    const largeCount  = Math.max(0, danger - 3);
-    const total = smallCount + mediumCount + largeCount;
+    const smallCount        = Math.min(danger + 1, 5);
+    const mediumCount       = Math.max(0, danger - 1);
+    const largeCount        = Math.max(0, danger - 3);
+    const flyingDasherCount = Math.min(Math.max(0, danger - 1), 3); // 1 at danger 2, up to 3 at danger 4+
+    const flyingShooterCount= Math.min(Math.max(0, danger - 2), 3); // 1 at danger 3, up to 3 at danger 5+
+    const total = smallCount + mediumCount + largeCount + flyingDasherCount + flyingShooterCount;
     if (total === 0) return;
 
     const spacing = (WORLD_W - 400) / (total + 1);
     let slot = 0;
+    let lastPlacedX = 200;
 
     const place = (
       EnemyType: new (s: Phaser.Scene, c: { x: number; patrolRange: number; visual?: EnemyVisualConfig }, g: (x: number) => number) => Enemy,
@@ -1151,12 +1157,52 @@ export class MissionScene extends Phaser.Scene {
       const enemy = new EnemyType(this, { x, patrolRange, visual }, gt);
       this.enemies.push(enemy);
       this.enemyGroup.add(enemy.gameObject);
+      lastPlacedX = x;
       slot++;
     };
 
-    for (let i = 0; i < smallCount;  i++) place(SmallEnemy, smallEnemyVisual);
-    for (let i = 0; i < mediumCount; i++) place(MediumEnemy, mediumEnemyVisual);
-    for (let i = 0; i < largeCount;  i++) place(LargeEnemy, largeEnemyVisual);
+    // Place a flying enemy beside the previously placed enemy instead of its
+    // own evenly-spaced slot, creating a visible "pair" in the level.
+    const placePaired = (
+      EnemyType: new (s: Phaser.Scene, c: { x: number; patrolRange: number; visual?: EnemyVisualConfig }, g: (x: number) => number) => Enemy,
+    ) => {
+      const offset = this._pseudoRandom(slot * 19 + 3) > 0.5 ? 160 : -160;
+      const x      = Phaser.Math.Clamp(lastPlacedX + offset, 200, WORLD_W - 200);
+      const enemy  = new EnemyType(this, { x, patrolRange: 60 }, gt);
+      this.enemies.push(enemy);
+      this.enemyGroup.add(enemy.gameObject);
+      // slot is NOT incremented — the paired enemy shares a spacing slot
+    };
+
+    // Build a flat list of all enemies to spawn, then shuffle deterministically
+    // so ground and flying types are mixed across the level instead of clumped.
+    type SpawnEntry = [
+      new (s: Phaser.Scene, c: { x: number; patrolRange: number; visual?: EnemyVisualConfig }, g: (x: number) => number) => Enemy,
+      EnemyVisualConfig | undefined,
+    ];
+    const spawnList: SpawnEntry[] = [
+      ...Array(smallCount).fill([SmallEnemy, smallEnemyVisual]),
+      ...Array(mediumCount).fill([MediumEnemy, mediumEnemyVisual]),
+      ...Array(largeCount).fill([LargeEnemy, largeEnemyVisual]),
+      ...Array(flyingDasherCount).fill([FlyingDasher, undefined]),
+      ...Array(flyingShooterCount).fill([FlyingShooter, undefined]),
+    ];
+    // Fisher-Yates shuffle using pseudoRandom so the mix is stable per seed
+    for (let i = spawnList.length - 1; i > 0; i--) {
+      const j = Math.floor(this._pseudoRandom(i * 37 + danger * 11) * (i + 1));
+      [spawnList[i], spawnList[j]] = [spawnList[j]!, spawnList[i]!];
+    }
+    for (let idx = 0; idx < spawnList.length; idx++) {
+      const [EnemyType, visual] = spawnList[idx]!;
+      const isFlying = EnemyType === FlyingDasher || EnemyType === FlyingShooter;
+      // ~40% chance a flying enemy pairs with the previous enemy (if one exists)
+      const pair = isFlying && idx > 0 && this._pseudoRandom(idx * 53 + danger * 7) < 0.4;
+      if (pair) {
+        placePaired(EnemyType as typeof FlyingDasher);
+      } else {
+        place(EnemyType, visual);
+      }
+    }
   }
 
   private _getEnemyVisualConfig(cacheKey: string): EnemyVisualConfig | undefined {
@@ -1235,11 +1281,26 @@ export class MissionScene extends Phaser.Scene {
   }
 
   private _spawnProjectile(data: PendingProjectile): void {
+    const SPEED = 340;
+    let velX: number, velY: number;
+    if (data.dirY !== undefined) {
+      // Aimed shot: build a proper velocity vector from the normalised direction
+      const nx  = data.dirX;   // ±1
+      const ny  = data.dirY;
+      const len = Math.sqrt(nx * nx + ny * ny) || 1;
+      velX = (nx / len) * SPEED;
+      velY = (ny / len) * SPEED;
+    } else {
+      velX = data.dirX * SPEED;
+      velY = 0;
+    }
     this.projectiles.push({
       gfx:       this.add.graphics(),
       x:         data.x,
       y:         data.y,
-      velX:      data.dirX * 340,
+      velX,
+      velY,
+      radius:    data.radius ?? 7,
       damage:    data.damage,
       expiresAt: this.time.now + 3000,
     });
