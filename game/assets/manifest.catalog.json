@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-03-09T05:43:21.618Z",
+  "generatedAt": "2026-03-11T05:47:01.356Z",
   "assets": [
     {
       "id": "city_close_view_basic",
@@ -361,6 +361,846 @@
         "sizeBytes": 4868099
       },
       "generatedAt": "2026-03-08T01:57:55.979Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_alpine_01",
+      "name": "Alpine 01",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_alpine_01.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_alpine_01.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_alpine_01.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_alpine_01.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": false,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 1px, right 3px, top 35px, bottom 66px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "alpine",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.09114583333333333
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "Alpine.png",
+        "mimeType": "image/png",
+        "sizeBytes": 517491
+      },
+      "generatedAt": "2026-03-11T03:29:19.503Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_alpine_02",
+      "name": "Alpine 02",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_alpine_02.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_alpine_02.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_alpine_02.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_alpine_02.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": false,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 1px, right 8px, top 35px, bottom 55px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "alpine",
+        "variant": 2,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.09114583333333333
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "Alpine2.png",
+        "mimeType": "image/png",
+        "sizeBytes": 384924
+      },
+      "generatedAt": "2026-03-11T05:47:01.353Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_bare_rock_01",
+      "name": "Bare Rock 01",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_bare_rock_01.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_bare_rock_01.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_bare_rock_01.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_bare_rock_01.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": false,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 0px, right 0px, top 50px, bottom 37px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "bare_rock",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.13020833333333334
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "Mountains.png",
+        "mimeType": "image/png",
+        "sizeBytes": 1045125
+      },
+      "generatedAt": "2026-03-11T02:55:48.982Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_desert_dunes_01",
+      "name": "Desert Dunes 01",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_desert_dunes_01.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_desert_dunes_01.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_desert_dunes_01.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_desert_dunes_01.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": true,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Local matte background removal applied using corner-color sampling.",
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 3px, right 14px, top 24px, bottom 46px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "desert_dunes",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.0625
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "Desert.jpg",
+        "mimeType": "image/jpeg",
+        "sizeBytes": 70474
+      },
+      "generatedAt": "2026-03-11T02:50:45.700Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_mangrove_01",
+      "name": "Mangrove 01",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_mangrove_01.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_mangrove_01.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_mangrove_01.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_mangrove_01.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": false,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 16px, right 14px, top 63px, bottom 55px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "mangrove",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.1640625
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "Marsh.jpg",
+        "mimeType": "image/jpeg",
+        "sizeBytes": 72656
+      },
+      "generatedAt": "2026-03-11T03:19:36.506Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_mangrove_02",
+      "name": "Mangrove 02",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_mangrove_02.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_mangrove_02.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_mangrove_02.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_mangrove_02.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": true,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Local matte background removal applied using corner-color sampling.",
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 3px, right 10px, top 53px, bottom 47px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "mangrove",
+        "variant": 2,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.13802083333333334
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "Marsh.jpg",
+        "mimeType": "image/jpeg",
+        "sizeBytes": 72656
+      },
+      "generatedAt": "2026-03-11T03:22:05.146Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_savanna_01",
+      "name": "Savanna 01",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_savanna_01.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_savanna_01.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_savanna_01.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_savanna_01.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": true,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Local matte background removal applied using corner-color sampling.",
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 3px, right 13px, top 10px, bottom 48px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "savanna",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.026041666666666668
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "Grassland.jpg",
+        "mimeType": "image/jpeg",
+        "sizeBytes": 70230
+      },
+      "generatedAt": "2026-03-11T02:51:26.841Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_shallow_sea_01",
+      "name": "Shallow Sea 01",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_shallow_sea_01.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_shallow_sea_01.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_shallow_sea_01.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_shallow_sea_01.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": false,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 17px, right 23px, top 19px, bottom 66px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "shallow_sea",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.049479166666666664
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "Sea.jpg",
+        "mimeType": "image/jpeg",
+        "sizeBytes": 61449
+      },
+      "generatedAt": "2026-03-11T03:20:08.183Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_shallow_sea_02",
+      "name": "Shallow Sea 02",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_shallow_sea_02.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_shallow_sea_02.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_shallow_sea_02.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_shallow_sea_02.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": true,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Local matte background removal applied using corner-color sampling.",
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 1px, right 18px, top 5px, bottom 51px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "shallow_sea",
+        "variant": 2,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.013020833333333334
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "Sea.jpg",
+        "mimeType": "image/jpeg",
+        "sizeBytes": 61449
+      },
+      "generatedAt": "2026-03-11T03:23:15.952Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_snow_peaks_01",
+      "name": "Snow Peaks 01",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_snow_peaks_01.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_snow_peaks_01.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_snow_peaks_01.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_snow_peaks_01.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": false,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 0px, right 0px, top 57px, bottom 79px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "snow_peaks",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.1484375
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "SnowyMoun.png",
+        "mimeType": "image/png",
+        "sizeBytes": 661538
+      },
+      "generatedAt": "2026-03-11T03:26:41.460Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_snow_peaks_02",
+      "name": "Snow Peaks 02",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_snow_peaks_02.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_snow_peaks_02.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_snow_peaks_02.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_snow_peaks_02.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": false,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 2px, right 7px, top 75px, bottom 45px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "snow_peaks",
+        "variant": 2,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.1953125
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "SnowyMoun2.png",
+        "mimeType": "image/png",
+        "sizeBytes": 381412
+      },
+      "generatedAt": "2026-03-11T05:34:31.667Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_snow_peaks_03",
+      "name": "Snow Peaks 03",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_snow_peaks_03.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_snow_peaks_03.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_snow_peaks_03.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_snow_peaks_03.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": false,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 2px, right 1px, top 9px, bottom 78px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "snow_peaks",
+        "variant": 3,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.0234375
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "SnowyMoun3.png",
+        "mimeType": "image/png",
+        "sizeBytes": 380419
+      },
+      "generatedAt": "2026-03-11T05:43:56.469Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_snow_peaks_04",
+      "name": "Snow Peaks 04",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_snow_peaks_04.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_snow_peaks_04.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_snow_peaks_04.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_snow_peaks_04.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": false,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 1px, right 17px, top 10px, bottom 74px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "snow_peaks",
+        "variant": 4,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.026041666666666668
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "SnowyMoun4.png",
+        "mimeType": "image/png",
+        "sizeBytes": 358556
+      },
+      "generatedAt": "2026-03-11T05:45:44.921Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_temperate_forest_01",
+      "name": "Temperate Forest 01",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_temperate_forest_01.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_temperate_forest_01.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_temperate_forest_01.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_temperate_forest_01.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": true,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Local matte background removal applied using corner-color sampling.",
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 0px, right 23px, top 47px, bottom 45px.",
+          "Overflow clipped to fit 384×384 canvas — left yes, top no, right yes, bottom no."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "temperate_forest",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.12239583333333333
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "Gemini_Generated_Image_4pa7404pa7404pa7.png",
+        "mimeType": "image/png",
+        "sizeBytes": 6149617
+      },
+      "generatedAt": "2026-03-11T02:47:54.038Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_woodland_01",
+      "name": "Woodland 01",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_woodland_01.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_woodland_01.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_woodland_01.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_woodland_01.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": true,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Local matte background removal applied using corner-color sampling.",
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 4px, right 7px, top 48px, bottom 48px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "woodland",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.125
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "Meadow.jpg",
+        "mimeType": "image/jpeg",
+        "sizeBytes": 84719
+      },
+      "generatedAt": "2026-03-11T02:49:34.523Z",
+      "notes": ""
+    },
+    {
+      "id": "terrain_woodland_02",
+      "name": "Woodland 02",
+      "status": "active",
+      "category": "sprites",
+      "mode": "image",
+      "outputFormat": "webp",
+      "maintainAspectRatio": true,
+      "resizeFit": "contain",
+      "outputRelativePath": "game/assets/terrain_tiles/terrain_woodland_02.webp",
+      "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_woodland_02.webp",
+      "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_woodland_02.asset.json",
+      "metadataRelativePath": "game/assets/_meta/terrain_woodland_02.asset.json",
+      "exportSize": {
+        "width": 384,
+        "height": 384
+      },
+      "displaySize": {
+        "width": 256,
+        "height": 122
+      },
+      "optimization": {
+        "enabled": true,
+        "backgroundRemovalRequested": true,
+        "cropToBoundingBoxRequested": false,
+        "notes": [
+          "Local matte background removal applied using corner-color sampling.",
+          "Terrain tile normalized to a 256px core hex footprint.",
+          "Scaled overflow budget — left 0px, right 15px, top 51px, bottom 46px."
+        ]
+      },
+      "terrainTile": {
+        "terrainType": "woodland",
+        "variant": 2,
+        "atlasGroup": "hex_tileset",
+        "generateAtlas": true,
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.1328125
+        }
+      },
+      "source": {
+        "kind": "image",
+        "name": "Woodland.jpg",
+        "mimeType": "image/jpeg",
+        "sizeBytes": 72028
+      },
+      "generatedAt": "2026-03-11T03:21:27.652Z",
       "notes": ""
     }
   ]

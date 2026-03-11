@@ -11,3 +11,19 @@
 | `hound_walk_cycle` | walk animation sheet | `animations/hound_walk_cycle.webp` | 6×6 cells, 195×110 display | webp spritesheet | generated |
 | `rootwalker_walk_cycle` | walk animation sheet | `animations/rootwalker_walk_cycle.webp` | 6×6 cells, 180×180 display | webp spritesheet | generated |
 | `spiderwalkcycle` | Generated from video (walk) | `animations/spiderwalkcycle.webp` | 6×6 cells, 90×51 display | webp spritesheet | generated |
+| `terrain_alpine_01` | alpine terrain tile v01 | `terrain_tiles/terrain_alpine_01.webp` | 384×384 | webp | generated |
+| `terrain_alpine_02` | alpine terrain tile v02 | `terrain_tiles/terrain_alpine_02.webp` | 384×384 | webp | generated |
+| `terrain_bare_rock_01` | bare rock terrain tile v01 | `terrain_tiles/terrain_bare_rock_01.webp` | 384×384 | webp | generated |
+| `terrain_desert_dunes_01` | desert dunes terrain tile v01 | `terrain_tiles/terrain_desert_dunes_01.webp` | 384×384 | webp | generated |
+| `terrain_mangrove_01` | mangrove terrain tile v01 | `terrain_tiles/terrain_mangrove_01.webp` | 384×384 | webp | generated |
+| `terrain_mangrove_02` | mangrove terrain tile v02 | `terrain_tiles/terrain_mangrove_02.webp` | 384×384 | webp | generated |
+| `terrain_savanna_01` | savanna terrain tile v01 | `terrain_tiles/terrain_savanna_01.webp` | 384×384 | webp | generated |
+| `terrain_shallow_sea_01` | shallow sea terrain tile v01 | `terrain_tiles/terrain_shallow_sea_01.webp` | 384×384 | webp | generated |
+| `terrain_shallow_sea_02` | shallow sea terrain tile v02 | `terrain_tiles/terrain_shallow_sea_02.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_01` | snow peaks terrain tile v01 | `terrain_tiles/terrain_snow_peaks_01.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_02` | snow peaks terrain tile v02 | `terrain_tiles/terrain_snow_peaks_02.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_03` | snow peaks terrain tile v03 | `terrain_tiles/terrain_snow_peaks_03.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_04` | snow peaks terrain tile v04 | `terrain_tiles/terrain_snow_peaks_04.webp` | 384×384 | webp | generated |
+| `terrain_temperate_forest_01` | temperate forest terrain tile v01 | `terrain_tiles/terrain_temperate_forest_01.webp` | 384×384 | webp | generated |
+| `terrain_woodland_01` | woodland terrain tile v01 | `terrain_tiles/terrain_woodland_01.webp` | 384×384 | webp | generated |
+| `terrain_woodland_02` | woodland terrain tile v02 | `terrain_tiles/terrain_woodland_02.webp` | 384×384 | webp | generated |

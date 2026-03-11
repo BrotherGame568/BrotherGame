@@ -1,0 +1,52 @@
+{
+  "id": "terrain_mangrove_01",
+  "name": "Mangrove 01",
+  "status": "active",
+  "category": "sprites",
+  "mode": "image",
+  "outputFormat": "webp",
+  "maintainAspectRatio": true,
+  "resizeFit": "contain",
+  "outputRelativePath": "game/assets/terrain_tiles/terrain_mangrove_01.webp",
+  "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_mangrove_01.webp",
+  "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_mangrove_01.asset.json",
+  "metadataRelativePath": "game/assets/_meta/terrain_mangrove_01.asset.json",
+  "exportSize": {
+    "width": 384,
+    "height": 384
+  },
+  "displaySize": {
+    "width": 256,
+    "height": 122
+  },
+  "optimization": {
+    "enabled": true,
+    "backgroundRemovalRequested": false,
+    "cropToBoundingBoxRequested": false,
+    "notes": [
+      "Terrain tile normalized to a 256px core hex footprint.",
+      "Scaled overflow budget — left 16px, right 14px, top 63px, bottom 55px."
+    ]
+  },
+  "terrainTile": {
+    "terrainType": "mangrove",
+    "variant": 1,
+    "atlasGroup": "hex_tileset",
+    "generateAtlas": true,
+    "coreHex": {
+      "centerX": 0.5,
+      "centerY": 0.55,
+      "radius": 0.3333333333333333,
+      "squashY": 0.55,
+      "topOverflow": 0.1640625
+    }
+  },
+  "source": {
+    "kind": "image",
+    "name": "Marsh.jpg",
+    "mimeType": "image/jpeg",
+    "sizeBytes": 72656
+  },
+  "generatedAt": "2026-03-11T03:19:36.506Z",
+  "notes": ""
+}

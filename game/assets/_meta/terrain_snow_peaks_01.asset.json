@@ -1,0 +1,52 @@
+{
+  "id": "terrain_snow_peaks_01",
+  "name": "Snow Peaks 01",
+  "status": "active",
+  "category": "sprites",
+  "mode": "image",
+  "outputFormat": "webp",
+  "maintainAspectRatio": true,
+  "resizeFit": "contain",
+  "outputRelativePath": "game/assets/terrain_tiles/terrain_snow_peaks_01.webp",
+  "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_snow_peaks_01.webp",
+  "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_snow_peaks_01.asset.json",
+  "metadataRelativePath": "game/assets/_meta/terrain_snow_peaks_01.asset.json",
+  "exportSize": {
+    "width": 384,
+    "height": 384
+  },
+  "displaySize": {
+    "width": 256,
+    "height": 122
+  },
+  "optimization": {
+    "enabled": true,
+    "backgroundRemovalRequested": false,
+    "cropToBoundingBoxRequested": false,
+    "notes": [
+      "Terrain tile normalized to a 256px core hex footprint.",
+      "Scaled overflow budget — left 0px, right 0px, top 57px, bottom 79px."
+    ]
+  },
+  "terrainTile": {
+    "terrainType": "snow_peaks",
+    "variant": 1,
+    "atlasGroup": "hex_tileset",
+    "generateAtlas": true,
+    "coreHex": {
+      "centerX": 0.5,
+      "centerY": 0.55,
+      "radius": 0.3333333333333333,
+      "squashY": 0.55,
+      "topOverflow": 0.1484375
+    }
+  },
+  "source": {
+    "kind": "image",
+    "name": "SnowyMoun.png",
+    "mimeType": "image/png",
+    "sizeBytes": 661538
+  },
+  "generatedAt": "2026-03-11T03:26:41.460Z",
+  "notes": ""
+}

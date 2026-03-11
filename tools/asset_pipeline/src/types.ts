@@ -4,6 +4,23 @@ export type OutputFormat = 'webp' | 'png' | 'jpg' | 'avif';
 export type AnimationType = 'idle' | 'walk' | 'run' | 'jump' | 'attack' | 'hurt' | 'death' | 'custom';
 export type ResizeFitMode = 'contain' | 'cover' | 'fill';
 export type VideoSamplingMode = 'sequential' | 'spread';
+export type TerrainType =
+  | 'abyssal_trench'
+  | 'deep_ocean'
+  | 'open_ocean'
+  | 'shallow_sea'
+  | 'mangrove'
+  | 'sand_beach'
+  | 'snow_peaks'
+  | 'bare_rock'
+  | 'alpine'
+  | 'dense_rainforest'
+  | 'temperate_forest'
+  | 'woodland'
+  | 'plains'
+  | 'savanna'
+  | 'scrub_steppe'
+  | 'desert_dunes';
 
 export interface Rect {
   x: number;
@@ -15,6 +32,14 @@ export interface Rect {
 export interface OriginPoint {
   x: number;
   y: number;
+}
+
+export interface TerrainHexOverlay {
+  centerX: number;
+  centerY: number;
+  radius: number;
+  squashY: number;
+  topOverflow: number;
 }
 
 export interface SourceInfo {
@@ -52,6 +77,12 @@ export interface AssetDraft {
   trimStartSeconds: number;
   trimEndSeconds: number;
   videoSampling: VideoSamplingMode;
+  terrainType: TerrainType | '';
+  terrainVariant: number;
+  terrainAutoNaming: boolean;
+  terrainAtlasGroup: string;
+  terrainGenerateAtlas: boolean;
+  terrainHexOverlay: TerrainHexOverlay;
 }
 
 export interface AssetMetadataDocument {
@@ -82,6 +113,13 @@ export interface AssetMetadataDocument {
     trimEndSeconds: number;
     requestedFrameRate: number;
     sampling: VideoSamplingMode;
+  };
+  terrainTile?: {
+    terrainType: TerrainType;
+    variant: number;
+    atlasGroup: string;
+    generateAtlas: boolean;
+    coreHex: TerrainHexOverlay;
   };
   source: SourceInfo | null;
   generatedAt: string;

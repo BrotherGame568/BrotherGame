@@ -33,6 +33,11 @@ const MIN_ZOOM     = 0.12; // allows zooming out to see most of the map
 const MAX_ZOOM     = 14.0;
 // Starting zoom: show roughly a 22-ring viewport width, not the whole map
 const INITIAL_ZOOM = 2.0;
+const TERRAIN_ATLAS_MANIFEST_KEY = 'terrain_atlas_manifest';
+const TERRAIN_ATLAS_TEXTURE_PREFIX = 'terrain_atlas_';
+const TERRAIN_TILE_FALLBACK_CORE_RADIUS = 1 / 3;
+/** Minimum zoom at which terrain art sprites are created — below this only color fills show. */
+const TERRAIN_ART_MIN_ZOOM = LABEL_ZOOM * 1.00; // = 3.5 — only kicks in once fully zoomed into the interactive layer
 
 // ── Particle system tuning ─────────────────────────────────────────────────
 /** Particles per corridor for the inactive (ghost) corridors. */
@@ -50,13 +55,74 @@ const BAND_SPREAD_GHOST     = TILE_R * 1.5;
 const STREAM_DRIFT          = TILE_R * 0.3;
 
 /**
- * Returns a biome colour for world hex (q, r).
+ * Returns a terrain biome bucket for world hex (q, r).
  *
  * Elevation = FBM + a continental-shelf boost that raises the centre of the
  * world above sea level, guaranteeing land near the city regardless of noise.
  * Moisture is an independent FBM channel controlling vegetation type.
  */
-function worldTileColor(q: number, r: number): number {
+type TerrainBiome =
+  | 'abyssal_trench'
+  | 'deep_ocean'
+  | 'open_ocean'
+  | 'shallow_sea'
+  | 'mangrove'
+  | 'sand_beach'
+  | 'snow_peaks'
+  | 'bare_rock'
+  | 'alpine'
+  | 'dense_rainforest'
+  | 'temperate_forest'
+  | 'woodland'
+  | 'plains'
+  | 'savanna'
+  | 'scrub_steppe'
+  | 'desert_dunes';
+
+interface TerrainAtlasCoreHex {
+  centerX: number;
+  centerY: number;
+  radius: number;
+  squashY: number;
+  topOverflow: number;
+}
+
+interface TerrainAtlasManifestAsset {
+  id: string;
+  terrainType: TerrainBiome;
+  variant: number;
+  frameKey: string;
+  coreHex?: TerrainAtlasCoreHex;
+}
+
+interface TerrainAtlasManifestEntry {
+  group: string;
+  imageRelativePath: string;
+  dataRelativePath: string;
+  tileCount: number;
+  columns: number;
+  rows: number;
+  cellSize: { width: number; height: number };
+  terrainTypes: TerrainBiome[];
+  assets: TerrainAtlasManifestAsset[];
+}
+
+interface TerrainAtlasManifest {
+  generatedAt: string;
+  atlases: TerrainAtlasManifestEntry[];
+}
+
+interface TerrainAtlasVariant {
+  textureKey: string;
+  frameKey: string;
+  terrainType: TerrainBiome;
+  variant: number;
+  coreHex: TerrainAtlasCoreHex;
+  frameWidth: number;
+  frameHeight: number;
+}
+
+function worldTileBiome(q: number, r: number): TerrainBiome {
   const nx = q + r * 0.5;
   const ny = r * 0.866;
   const sc = 1 / 8;   // coarser scale → bigger blobs, clearly visible at zoom 2
@@ -72,24 +138,47 @@ function worldTileColor(q: number, r: number): number {
   const m = rawM;
 
   // ── Water ────────────────────────────────────────────────
-  if (e < 0.08) return 0x020c18;   // abyssal trench
-  if (e < 0.18) return 0x071828;   // deep ocean
-  if (e < 0.28) return 0x0d2e52;   // open ocean
-  if (e < 0.36) return 0x165c80;   // shallow sea
-  if (e < 0.42) return m > 0.52 ? 0x2a8060 : 0xb8aa72; // mangrove / sand beach
+  if (e < 0.08) return 'abyssal_trench';
+  if (e < 0.18) return 'deep_ocean';
+  if (e < 0.28) return 'open_ocean';
+  if (e < 0.36) return 'shallow_sea';
+  if (e < 0.42) return m > 0.52 ? 'mangrove' : 'sand_beach';
 
   // ── Alpine ───────────────────────────────────────────────
-  if (e > 0.90) return 0xdce8f0;   // snow peaks
-  if (e > 0.78) return m < 0.38 ? 0x7c6a50 : 0x606858; // bare rock / alpine
+  if (e > 0.90) return 'snow_peaks';
+  if (e > 0.78) return m < 0.38 ? 'bare_rock' : 'alpine';
 
   // ── Mainland (by moisture) ────────────────────────────────
-  if (m > 0.74) return e > 0.64 ? 0x1e6828 : 0x30943c; // dense rainforest
-  if (m > 0.60) return e > 0.64 ? 0x347838 : 0x46a84e; // temperate forest
-  if (m > 0.48) return e > 0.63 ? 0x4e9040 : 0x66b84e; // woodland / mixed
-  if (m > 0.36) return e > 0.62 ? 0x70a030 : 0x96c840; // grassland / plains
-  if (m > 0.24) return e > 0.60 ? 0x8c8c28 : 0xb0b038; // savanna / dry grass
-  if (m > 0.14) return e > 0.58 ? 0xa07832 : 0xc8a84a; // scrub / steppe
-  return e > 0.56 ? 0xb86820 : 0xe0b85a;                // desert / golden dunes
+  if (m > 0.74) return e > 0.64 ? 'dense_rainforest' : 'temperate_forest';
+  if (m > 0.60) return e > 0.64 ? 'temperate_forest' : 'woodland';
+  if (m > 0.48) return e > 0.63 ? 'woodland' : 'plains';
+  if (m > 0.36) return e > 0.62 ? 'plains' : 'savanna';
+  if (m > 0.24) return e > 0.60 ? 'savanna' : 'scrub_steppe';
+  if (m > 0.14) return e > 0.58 ? 'scrub_steppe' : 'desert_dunes';
+  return 'desert_dunes';
+}
+
+const TERRAIN_BIOME_COLORS: Record<TerrainBiome, number> = {
+  abyssal_trench:   0x020c18,
+  deep_ocean:       0x071828,
+  open_ocean:       0x0d2e52,
+  shallow_sea:      0x165c80,
+  mangrove:         0x2a8060,
+  sand_beach:       0xb8aa72,
+  snow_peaks:       0xdce8f0,
+  bare_rock:        0x7c6a50,
+  alpine:           0x606858,
+  dense_rainforest: 0x1e6828,
+  temperate_forest: 0x347838,
+  woodland:         0x4e9040,
+  plains:           0x96c840,
+  savanna:          0xb0b038,
+  scrub_steppe:     0xc8a84a,
+  desert_dunes:     0xe0b85a,
+};
+
+function worldTileColor(q: number, r: number): number {
+  return TERRAIN_BIOME_COLORS[worldTileBiome(q, r)];
 }
 
 /** Lighten a packed 0xRRGGBB colour by adding `amount` to each channel. */
@@ -145,6 +234,33 @@ interface ScreenHexLabel {
   text: Phaser.GameObjects.Text;
 }
 
+function stableHexHash(q: number, r: number): number {
+  // Cantor pairing → single integer, then MurmurHash3 finalizer for full avalanche mixing.
+  // This eliminates the spatial banding that XOR-of-linear-products produces.
+  const k = (q >= 0 ? 2 * q : -2 * q - 1) * 0x10000 + (r >= 0 ? 2 * r : -2 * r - 1);
+  let h = k >>> 0;
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b) >>> 0;
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35) >>> 0;
+  h ^= h >>> 16;
+  return h;
+}
+
+function toPublicAssetPath(relativePath: string): string {
+  return relativePath.replace(/^game\/assets\//, '');
+}
+
+function defaultTerrainCoreHex(): TerrainAtlasCoreHex {
+  return {
+    centerX: 0.5,
+    centerY: 0.55,
+    radius: TERRAIN_TILE_FALLBACK_CORE_RADIUS,
+    squashY: TILE_SY,
+    topOverflow: 0,
+  };
+}
+
 export class WorldMapScene extends Phaser.Scene {
   private gsm!:             IGameStateManager;
   private tradewindSystem!: ITradewindSystem;
@@ -182,6 +298,25 @@ export class WorldMapScene extends Phaser.Scene {
   private _reachOutlineGfx: Phaser.GameObjects.Graphics | null = null;
   /** Terrain fill graphics for each game tile — hidden when zoomed far out. */
   private _gameTileGfxList: Phaser.GameObjects.Graphics[] = [];
+  /** Close-up terrain art sprites generated from atlas variants. */
+  private _terrainTileSprites: Phaser.GameObjects.Image[] = [];
+  /** Container in mapContainer that holds all world terrain art sprites (above fills, below grid lines). */
+  private _terrainSpriteContainer: Phaser.GameObjects.Container | null = null;
+  /** Viewport-culled terrain art sprites keyed by hexId — added/removed as camera pans/zooms. */
+  private _worldTerrainSprites: Map<string, Phaser.GameObjects.Image> = new Map();
+  /** Camera state at the last terrain sprite sync, to throttle redundant pan-syncs. */
+  private _lastTerrainSyncCtrX = 0;
+  private _lastTerrainSyncCtrY = 0;
+  private _lastTerrainSyncZoom = -1;
+  /** Runtime atlas manifest describing available terrain variants. */
+  private _terrainAtlasManifest: TerrainAtlasManifest | null = null;
+  /** Variant lookup by biome bucket for deterministic tile art selection. */
+  private _terrainVariantsByType: Map<TerrainBiome, TerrainAtlasVariant[]> = new Map();
+  /** True while dynamic atlas loading is in flight. */
+  private _terrainAtlasesLoading = false;
+  /** Set when the variant index is rebuilt but sync couldn't run (zoom too low). */
+  private _pendingTerrainSync = false;
+
   /** Dark distance fog drawn between terrain and corridors. */
   private _fogGfx:            Phaser.GameObjects.Graphics | null = null;
   /** Interactive zones along corridor spines for hover detection. */
@@ -275,7 +410,15 @@ export class WorldMapScene extends Phaser.Scene {
     this._cloudData            = [];
     this._hazeGfx              = null;
     this._vignetteGfx          = null;
-    this._reachOutlineGfx     = null;
+    this._reachOutlineGfx      = null;
+    this._terrainSpriteContainer = null;
+    this._worldTerrainSprites    = new Map();
+    this._lastTerrainSyncZoom    = -1;
+    this._terrainTileSprites     = [];
+    this._terrainAtlasManifest = null;
+    this._terrainVariantsByType = new Map();
+    this._terrainAtlasesLoading = false;
+    this._pendingTerrainSync = false;
     this._streamGfx           = null;
     this._particleData        = [];
     this._junctionOverlay     = null;
@@ -301,6 +444,7 @@ export class WorldMapScene extends Phaser.Scene {
     if (!this.textures.exists('city_zoom')) {
       this.load.image('city_zoom', 'sprites/cityzoom.webp');
     }
+    this.load.json(TERRAIN_ATLAS_MANIFEST_KEY, 'terrain_tiles/terrain_atlas_manifest.generated.json');
   }
 
   create(): void {
@@ -344,6 +488,7 @@ export class WorldMapScene extends Phaser.Scene {
 
     this.gameTileContainer = this.add.container(0, 0);
     this.mapContainer.add(this.gameTileContainer);
+    this._prepareTerrainAtlases();
     this._buildGameTiles();
     this._buildParticles();      // animated dots flowing along corridor spines
     this._updateLabelVisibility();
@@ -406,6 +551,12 @@ export class WorldMapScene extends Phaser.Scene {
       this.mapContainer.x = this.ctnrStartX + (p.x - this.dragStartX);
       this.mapContainer.y = this.ctnrStartY + (p.y - this.dragStartY);
       this._updateScreenLabelTransforms();
+      // Sync terrain sprites when the camera has panned by at least half a tile.
+      const movePx = Math.hypot(
+        this.mapContainer.x - this._lastTerrainSyncCtrX,
+        this.mapContainer.y - this._lastTerrainSyncCtrY,
+      );
+      if (movePx > TILE_R * this.currentZoom * 0.5) this._syncWorldTerrainSprites();
     });
     this.input.on('pointerup', () => {
       this.mapPointerDown = false;
@@ -426,9 +577,11 @@ export class WorldMapScene extends Phaser.Scene {
     this._terrainGfx       = fillGfx;
     this._terrainDetailGfx = bevlGfx;
     this._terrainLineGfx   = lineGfx;
-    // Insertion order sets draw order within mapContainer:
-    // fill(0) → bevel(1) → lines(2)  — fog inserted after these by _buildFogOverlay
+    // Insertion order: fill → terrain-art-sprites → bevel → grid-lines
+    // Fog is inserted on top by _buildFogOverlay; grid lines & bevel stay separate for alpha control.
+    this._terrainSpriteContainer = this.add.container(0, 0);
     this.mapContainer.add(fillGfx);
+    this.mapContainer.add(this._terrainSpriteContainer);
     this.mapContainer.add(bevlGfx);
     this.mapContainer.add(lineGfx);
 
@@ -524,18 +677,23 @@ export class WorldMapScene extends Phaser.Scene {
     this.screenLabels = [];
     this.labelObjects = [];
     this._gameTileGfxList = [];
+    this._terrainTileSprites = [];
 
     const cityId = hexId(this.gsm.cityHex);
+    const localTiles = this.gsm.hexMap
+      .filter((tile) => hexDistance(tile.coord, this.gsm.cityHex) <= GAME_RADIUS)
+      .map((tile) => {
+        const isCity = tile.id === cityId;
+        const display = SITE_DISPLAY[tile.siteType] ?? SITE_DISPLAY['empty']!;
+        const { x, y } = tilePx(tile.coord.q, tile.coord.r);
+        const pts = tilePts(x, y);
+        const terrColor = worldTileColor(tile.coord.q, tile.coord.r);
+        const terrainVariant = this._resolveTerrainVariant(tile.coord.q, tile.coord.r);
+        return { tile, isCity, display, x, y, pts, terrColor, terrainVariant };
+      });
 
-    for (const tile of this.gsm.hexMap) {
-      if (hexDistance(tile.coord, this.gsm.cityHex) > GAME_RADIUS) continue;
-
-      const isCity   = tile.id === cityId;
-      const display  = SITE_DISPLAY[tile.siteType] ?? SITE_DISPLAY['empty']!;
-      const { x, y } = tilePx(tile.coord.q, tile.coord.r);
-      const pts       = tilePts(x, y);
-
-      const terrColor = worldTileColor(tile.coord.q, tile.coord.r);
+    for (const { tile, isCity, display, x, y, pts, terrColor, terrainVariant } of localTiles) {
+      const hasTerrainArt = terrainVariant !== null;
 
       const tileGfx = this.add.graphics();
       this.gameTileContainer.add(tileGfx);
@@ -543,7 +701,14 @@ export class WorldMapScene extends Phaser.Scene {
 
       const drawTile = (hovered: boolean) => {
         tileGfx.clear();
-        if (isCity) {
+        if (hasTerrainArt) {
+          if (hovered) {
+            tileGfx.fillStyle(isCity ? 0xf7c948 : display.color, isCity ? 0.12 : 0.18);
+            tileGfx.fillPoints(pts, true);
+          }
+          tileGfx.lineStyle(isCity ? (hovered ? 2.5 : 1.5) : (hovered ? 2.0 : 1.25), isCity ? 0xf7c948 : display.color, hovered ? 1 : 0.72);
+          tileGfx.strokePoints(pts, true);
+        } else if (isCity) {
           // City hex: normal terrain fill with amber outline (orb drawn separately).
           tileGfx.fillStyle(terrColor, hovered ? 0.90 : 0.75);
           tileGfx.fillPoints(pts, true);
@@ -675,8 +840,12 @@ export class WorldMapScene extends Phaser.Scene {
     // City: sprite fades in with zoom, orb fades out with it.
     if (this._citySprite) this._citySprite.setAlpha(t);
     if (this.cityDot)     this.cityDot.setAlpha(1 - t);
+    // _terrainSpriteContainer alpha is driven every frame by update() — skip individual sprites here.
     for (const lbl of this.screenLabels) {
       lbl.text.setAlpha(t);
+    }
+    for (const spr of this._terrainTileSprites) {
+      spr.setAlpha(t);
     }
     // Terrain fills fade in; ring stays at full alpha always.
     for (const gfx of this._gameTileGfxList) {
@@ -684,6 +853,8 @@ export class WorldMapScene extends Phaser.Scene {
     }
     // Clear corridor hover highlight once we're mostly zoomed in.
     if (show) this._onCorridorOut();
+    // Sync viewport-culled terrain sprites on every zoom change.
+    this._syncWorldTerrainSprites();
     // Terrain / line / bevel / cloud / haze alphas are all driven in update() each frame.
   }
 
@@ -886,6 +1057,13 @@ export class WorldMapScene extends Phaser.Scene {
     const gfx     = this._streamGfx;
     if (!gfx) return;
 
+    // ── Deferred terrain sync: atlas loaded but zoom was too low at that time ────
+    if (this._pendingTerrainSync && this.currentZoom >= TERRAIN_ART_MIN_ZOOM && this._terrainVariantsByType.size > 0) {
+      this._pendingTerrainSync = false;
+      this._lastTerrainSyncZoom = -1;
+      this._syncWorldTerrainSprites();
+    }
+
     // ── Gently bob the city sprite (suppressed during movement tween) ───────────────
     if (this._citySprite && this._citySprite.alpha > 0 && !this._cityMoving) {
       this._citySprite.y = this._cityBobBaseY + Math.sin(time * 0.0005) * TILE_R * 0.12;
@@ -904,12 +1082,23 @@ export class WorldMapScene extends Phaser.Scene {
 
     // Terrain fills — present at all zoom levels, brighten toward INITIAL_ZOOM
     if (this._terrainGfx)       this._terrainGfx.setAlpha(0.20 + zoomFar * 0.60);
-    // Grid lines — fade OUT as we zoom far away; hexes blend into terrain patches
-    if (this._terrainLineGfx)   this._terrainLineGfx.setAlpha(ss(zoomFar, 0.30, 0.85));
-    // Bevel shading — fade IN as we zoom close; 3-D form emerges
-    if (this._terrainDetailGfx) this._terrainDetailGfx.setAlpha(ss(zoomNear, 0.08, 0.45));
-    // Clouds — begin fading in immediately as zoom passes INITIAL_ZOOM
-    if (this._cloudContainer)   this._cloudContainer.setAlpha(ss(zoomNear, 0.0, 0.16));
+    // Terrain art sprites — fade in as zoom passes TERRAIN_ART_MIN_ZOOM, finish ~1.5× LABEL_ZOOM
+    const artFadeEnd   = LABEL_ZOOM * 1.50;   // fully opaque by zoom ~5.25
+    const artFadeT = Phaser.Math.Clamp(
+      (this.currentZoom - TERRAIN_ART_MIN_ZOOM) / (artFadeEnd - TERRAIN_ART_MIN_ZOOM), 0, 1,
+    );
+    const artAlpha = artFadeT * artFadeT * (3 - 2 * artFadeT); // smoothstep
+    if (this._terrainSpriteContainer) this._terrainSpriteContainer.setAlpha(artAlpha);
+    // Grid lines — fade OUT as we zoom far away AND as terrain art fades in (art takes over)
+    const gridFadeOut = 1 - ss(artFadeT, 0.40, 1.0); // disappears as art fills in
+    if (this._terrainLineGfx)   this._terrainLineGfx.setAlpha(ss(zoomFar, 0.30, 0.85) * gridFadeOut);
+    // Bevel shading — fade IN as we zoom close, but fade OUT again as terrain art covers it
+    const bevelBase = ss(zoomNear, 0.08, 0.45);
+    const bevelArt  = 1 - artAlpha; // fully gone once art is opaque
+    if (this._terrainDetailGfx) this._terrainDetailGfx.setAlpha(bevelBase * bevelArt);
+    // Clouds — only appear close up where individual tiles are large enough to warrant it
+    // zoomNear: 0 at INITIAL_ZOOM(2.0), 1 at MAX_ZOOM(14.0).  0.25 ≈ zoom 5, 0.42 ≈ zoom 7
+    if (this._cloudContainer)   this._cloudContainer.setAlpha(ss(zoomNear, 0.25, 0.42));
     // Drift each cloud puff across the map (mapContainer-local px per ms)
     for (const cd of this._cloudData) {
       cd.gfx.x += cd.vx * delta;
@@ -1075,6 +1264,234 @@ export class WorldMapScene extends Phaser.Scene {
       this.titleText?.setText('Cycle ' + this.gsm.cycleCount + '  —  Hex Map');
       if (this.tradewindSystem.isAtJunction()) this._showJunctionModal();
     });
+  }
+
+  private _prepareTerrainAtlases(): void {
+    this._terrainAtlasManifest = this.cache.json.get(TERRAIN_ATLAS_MANIFEST_KEY) as TerrainAtlasManifest | null;
+    if (!this._terrainAtlasManifest?.atlases?.length) {
+      this._terrainVariantsByType.clear();
+      this._lastTerrainSyncZoom = -1;
+      this._syncWorldTerrainSprites();
+      return;
+    }
+
+    const atlasesToLoad = this._terrainAtlasManifest.atlases.filter(
+      (atlas) => !this.textures.exists(this._terrainAtlasTextureKey(atlas.group)),
+    );
+
+    if (atlasesToLoad.length === 0) {
+      this._rebuildTerrainVariantIndex();
+      this._lastTerrainSyncZoom = -1;
+      this._syncWorldTerrainSprites();
+      return;
+    }
+
+    if (this._terrainAtlasesLoading) return;
+    this._terrainAtlasesLoading = true;
+    this.load.once(Phaser.Loader.Events.COMPLETE, () => {
+      this._terrainAtlasesLoading = false;
+      this._rebuildTerrainVariantIndex();
+      this._lastTerrainSyncZoom = -1;
+      // If zoom is already high enough, sync immediately; otherwise defer to update().
+      if (this.currentZoom >= TERRAIN_ART_MIN_ZOOM) {
+        this._syncWorldTerrainSprites();
+      } else {
+        this._pendingTerrainSync = true;
+      }
+      if (this.gameTileContainer) {
+        this._buildGameTiles();
+        this._updateLabelVisibility();
+      }
+    });
+
+    for (const atlas of atlasesToLoad) {
+      this.load.atlas(
+        this._terrainAtlasTextureKey(atlas.group),
+        toPublicAssetPath(atlas.imageRelativePath),
+        toPublicAssetPath(atlas.dataRelativePath),
+      );
+    }
+    this.load.start();
+  }
+
+  private _rebuildTerrainVariantIndex(): void {
+    this._terrainVariantsByType.clear();
+    if (!this._terrainAtlasManifest?.atlases?.length) return;
+
+    for (const atlas of this._terrainAtlasManifest.atlases) {
+      const textureKey = this._terrainAtlasTextureKey(atlas.group);
+      if (!this.textures.exists(textureKey)) continue;
+
+      for (const asset of atlas.assets ?? []) {
+        const frame = this.textures.getFrame(textureKey, asset.frameKey);
+        if (!frame) continue;
+
+        const nextVariant: TerrainAtlasVariant = {
+          textureKey,
+          frameKey: asset.frameKey,
+          terrainType: asset.terrainType,
+          variant: asset.variant,
+          coreHex: asset.coreHex ?? defaultTerrainCoreHex(),
+          frameWidth: frame.width,
+          frameHeight: frame.height,
+        };
+        const existing = this._terrainVariantsByType.get(asset.terrainType) ?? [];
+        existing.push(nextVariant);
+        existing.sort((a, b) => (a.variant - b.variant) || a.frameKey.localeCompare(b.frameKey));
+        this._terrainVariantsByType.set(asset.terrainType, existing);
+      }
+    }
+
+  }
+
+  private _resolveTerrainVariant(q: number, r: number): TerrainAtlasVariant | null {
+    // Bail fast when the index hasn't been built yet.
+    if (this._terrainVariantsByType.size === 0) return null;
+
+    const biome = worldTileBiome(q, r);
+
+    // Water biomes fall back to shallow_sea art until dedicated ocean tiles exist.
+    const isWaterBiome = biome === 'abyssal_trench' || biome === 'deep_ocean' || biome === 'open_ocean';
+    if (isWaterBiome) {
+      const hash = stableHexHash(q, r);
+      const seaVariants = this._terrainVariantsByType.get('shallow_sea');
+      if (seaVariants?.length) return seaVariants[hash % seaVariants.length]!;
+      return null;
+    }
+
+    // Biomes that have no dedicated art fall back to the nearest visual equivalent.
+    const BIOME_FALLBACK: Partial<Record<TerrainBiome, TerrainBiome>> = {
+      dense_rainforest: 'temperate_forest',
+      plains:           'woodland',
+      scrub_steppe:     'savanna',
+      sand_beach:       'savanna',
+    };
+
+    const hash = stableHexHash(q, r);
+
+    // Primary: look up the biome directly.
+    const directVariants = this._terrainVariantsByType.get(biome);
+    if (directVariants?.length) {
+      return directVariants[hash % directVariants.length]!;
+    }
+
+    // Fallback 1: mapped biome alias.
+    const fallbackBiome = BIOME_FALLBACK[biome];
+    if (fallbackBiome) {
+      const fbVariants = this._terrainVariantsByType.get(fallbackBiome);
+      if (fbVariants?.length) {
+        return fbVariants[hash % fbVariants.length]!;
+      }
+    }
+
+    // Fallback 2: any available variant (prevents visual gaps).
+    for (const variants of this._terrainVariantsByType.values()) {
+      if (variants?.length) return variants[hash % variants.length]!;
+    }
+
+    return null;
+  }
+
+  private _terrainAtlasTextureKey(group: string): string {
+    return `${TERRAIN_ATLAS_TEXTURE_PREFIX}${group}`;
+  }
+
+  /**
+   * Returns the range of hex axial coordinates that are currently visible in the camera viewport,
+   * with a 2-hex margin so tiles never pop in at the edge.
+   */
+  private _visibleHexBounds(): { qMin: number; qMax: number; rMin: number; rMax: number } {
+    const W = this.scale.width, H = this.scale.height;
+    const corners = [
+      { sx: 0, sy: 0 }, { sx: W, sy: 0 }, { sx: 0, sy: H }, { sx: W, sy: H },
+    ].map(({ sx, sy }) => ({
+      mx: (sx - this.mapContainer.x) / this.currentZoom,
+      my: (sy - this.mapContainer.y) / this.currentZoom,
+    }));
+    let qMin = Infinity, qMax = -Infinity, rMin = Infinity, rMax = -Infinity;
+    for (const { mx, my } of corners) {
+      const q = mx / (TILE_R * 1.5);
+      const r = my / (TILE_R * SQRT3 * TILE_SY) - q * 0.5;
+      qMin = Math.min(qMin, Math.floor(q) - 2);
+      qMax = Math.max(qMax, Math.ceil(q) + 2);
+      rMin = Math.min(rMin, Math.floor(r) - 2);
+      rMax = Math.max(rMax, Math.ceil(r) + 2);
+    }
+    return {
+      qMin: Math.max(-WORLD_RADIUS, qMin),
+      qMax: Math.min(WORLD_RADIUS, qMax),
+      rMin: Math.max(-WORLD_RADIUS, rMin),
+      rMax: Math.min(WORLD_RADIUS, rMax),
+    };
+  }
+
+  /**
+   * Adds terrain art sprites for hexes newly in-view and destroys those that have scrolled out.
+   * Sprites are placed directly in _terrainSpriteContainer (map-space coords) and share atlas
+   * textures so Phaser WebGL batches them into a single draw call per atlas.
+   * Called on every zoom change and when the camera pans by ≥ half a tile.
+   */
+  private _syncWorldTerrainSprites(): void {
+    if (!this._terrainSpriteContainer) return;
+
+    // Below the art threshold destroy everything — color fills are sufficient.
+    if (this.currentZoom < TERRAIN_ART_MIN_ZOOM || this._terrainVariantsByType.size === 0) {
+      for (const spr of this._worldTerrainSprites.values()) spr.destroy();
+      this._worldTerrainSprites.clear();
+      this._lastTerrainSyncZoom = this.currentZoom;
+      this._lastTerrainSyncCtrX = this.mapContainer.x;
+      this._lastTerrainSyncCtrY = this.mapContainer.y;
+      return;
+    }
+
+    const { qMin, qMax, rMin, rMax } = this._visibleHexBounds();
+    const activeIds = new Set<string>();
+
+    for (let q = qMin; q <= qMax; q++) {
+      for (let r = rMin; r <= rMax; r++) {
+        if (Math.abs(-q - r) > WORLD_RADIUS) continue;
+        const terrainVariant = this._resolveTerrainVariant(q, r);
+        if (!terrainVariant) continue;
+
+        const id = hexId({ q, r });
+        activeIds.add(id);
+
+        if (!this._worldTerrainSprites.has(id)) {
+          const { x, y } = tilePx(q, r);
+          const coreRadiusPx = Math.max(1, terrainVariant.frameWidth * terrainVariant.coreHex.radius);
+          const baseScale = TILE_R / coreRadiusPx;
+          // Per-hex stable pseudo-random decorations to break visual repetition.
+          // Using different bit-windows of the same hash keeps everything deterministic.
+          const hash = stableHexHash(q, r);
+          // Horizontal flip: ~50% of tiles mirrored — doubles apparent variety for free.
+          const flipX = Boolean((hash >>> 8) & 1);
+          // Scale jitter ±5%: breaks up the mechanical hex-grid regularity.
+          const scaleJitter = 1 + (((hash >>> 12) & 0xf) - 7) / 140; // range ≈ [0.95 … 1.05]
+          const scale = baseScale * scaleJitter;
+          // Container render order = insertion order, so we sort after all adds (below).
+          const spr = this.add.image(x, y, terrainVariant.textureKey, terrainVariant.frameKey)
+            .setOrigin(terrainVariant.coreHex.centerX, terrainVariant.coreHex.centerY)
+            .setScale(scale)
+            .setFlipX(flipX);
+          this._terrainSpriteContainer.add(spr);
+          this._worldTerrainSprites.set(id, spr);
+        }
+      }
+    }
+
+    // Destroy sprites that scrolled out of view.
+    for (const [id, spr] of this._worldTerrainSprites.entries()) {
+      if (!activeIds.has(id)) {
+        spr.destroy();
+        this._worldTerrainSprites.delete(id);
+      }
+    }
+
+    this._lastTerrainSyncZoom = this.currentZoom;
+    this._lastTerrainSyncCtrX = this.mapContainer.x;
+    this._lastTerrainSyncCtrY = this.mapContainer.y;
+    // Re-sort by Y so lower tiles (higher screen Y) render on top of tiles behind them.
+    this._terrainSpriteContainer.sort('y');
   }
 
   /**

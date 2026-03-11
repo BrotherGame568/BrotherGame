@@ -19,6 +19,17 @@ const outputFolders = {
   ui: path.join(assetsRoot, 'ui'),
   animations: path.join(assetsRoot, 'animations'),
 };
+const terrainTilesRoot = path.join(assetsRoot, 'terrain_tiles');
+const terrainAtlasesRoot = path.join(terrainTilesRoot, 'atlases');
+const terrainAtlasManifestPath = path.join(terrainTilesRoot, 'terrain_atlas_manifest.generated.json');
+const TARGET_TERRAIN_HEX_SQUASH = 0.55;
+const TARGET_TERRAIN_CORE_WIDTH = 256;
+const TARGET_TERRAIN_OUTPUT_WIDTH = 384;
+const TARGET_TERRAIN_OUTPUT_HEIGHT = 384;
+const TARGET_TERRAIN_CENTER_X = 0.5;
+const TARGET_TERRAIN_CENTER_Y = 0.55;
+const TERRAIN_ATLAS_PADDING = 0;
+const TERRAIN_ATLAS_IMAGE_EXTENSION = 'webp';
 const metaRoot = path.join(assetsRoot, '_meta');
 const catalogPath = path.join(assetsRoot, 'manifest.catalog.json');
 const generatedManifestPath = path.join(assetsRoot, 'MANIFEST.generated.md');
@@ -28,6 +39,10 @@ const sharpInputOptions = { animated: false, limitInputPixels: false };
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
+
+initializeGeneratedArtifacts().catch((error) => {
+  console.error('Failed to initialize generated asset artifacts.', error);
+});
 
 app.get('/api/health', async (_req, res) => {
   const ffmpegAvailable = typeof ffmpegPath === 'string' && ffmpegPath.length > 0;
@@ -196,6 +211,13 @@ function parseDraft(raw) {
   return JSON.parse(raw);
 }
 
+function getOutputFolderForDraft(draft) {
+  if (draft?.terrainType) {
+    return terrainTilesRoot;
+  }
+  return outputFolders[draft.category] ?? outputFolders.sprites;
+}
+
 async function processRasterAsset(file, draft) {
   const effectiveFormat = getEffectiveFormat(draft.outputFormat, draft.removeBackground);
   const notes = [];
@@ -208,6 +230,25 @@ async function processRasterAsset(file, draft) {
     if (draft.removeBackground) {
       pipeline = await removeBackgroundFromPipeline(pipeline);
       notes.push('Local matte background removal applied using corner-color sampling.');
+    }
+
+    if (draft.terrainType && draft.terrainHexOverlay) {
+      const normalized = await normalizeTerrainTile(pipeline, draft);
+      notes.push(...normalized.notes);
+      const formattedOutputBuffer = await applyFormat(sharp(normalized.outputBuffer, sharpInputOptions), effectiveFormat).toBuffer();
+
+      return {
+        outputBuffer: formattedOutputBuffer,
+        outputFormat: effectiveFormat,
+        outputBytes: formattedOutputBuffer.byteLength,
+        notes,
+        frameCount: 1,
+        suggestedDisplayWidth: normalized.suggestedDisplayWidth,
+        suggestedDisplayHeight: normalized.suggestedDisplayHeight,
+        exportWidth: normalized.exportWidth,
+        exportHeight: normalized.exportHeight,
+        normalizedHexOverlay: normalized.normalizedHexOverlay,
+      };
     }
 
     pipeline = pipeline.resize(Math.max(1, draft.exportWidth), Math.max(1, draft.exportHeight), {
@@ -237,6 +278,8 @@ async function processRasterAsset(file, draft) {
       frameCount: 1,
       suggestedDisplayWidth,
       suggestedDisplayHeight,
+      exportWidth: draft.exportWidth,
+      exportHeight: draft.exportHeight,
     };
   }
 
@@ -315,6 +358,124 @@ async function processRasterAsset(file, draft) {
     frameCount: columns * rows,
     suggestedDisplayWidth,
     suggestedDisplayHeight,
+    exportWidth: columns * targetFrameWidth,
+    exportHeight: rows * targetFrameHeight,
+  };
+}
+
+async function normalizeTerrainTile(pipeline, draft) {
+  const { data, info } = await pipeline.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const sourceWidth = Math.max(1, info.width);
+  const sourceHeight = Math.max(1, info.height);
+  const overlay = draft.terrainHexOverlay ?? {
+    centerX: 0.5,
+    centerY: 0.62,
+    radius: 0.28,
+    squashY: 0.72,
+    topOverflow: 0.22,
+  };
+  const sourceRadius = Math.max(1, overlay.radius * sourceWidth);
+  const sourceSquashY = Math.max(0.35, Math.min(0.95, overlay.squashY ?? 0.72));
+  const sourceHexHalfHeight = sourceRadius * Math.sin(Math.PI / 3) * sourceSquashY;
+  const sourceCenterX = overlay.centerX * sourceWidth;
+  const sourceCenterY = overlay.centerY * sourceHeight;
+  const sourceHexLeft = sourceCenterX - sourceRadius;
+  const sourceHexRight = sourceCenterX + sourceRadius;
+  const sourceHexTop = sourceCenterY - sourceHexHalfHeight;
+  const sourceHexBottom = sourceCenterY + sourceHexHalfHeight;
+  const opaqueBounds = findOpaqueBoundingBox(data, sourceWidth, sourceHeight) ?? {
+    minX: 0,
+    minY: 0,
+    maxX: sourceWidth - 1,
+    maxY: sourceHeight - 1,
+  };
+
+  const leftOverflow = Math.max(0, sourceHexLeft - opaqueBounds.minX);
+  const rightOverflow = Math.max(0, opaqueBounds.maxX - sourceHexRight);
+  const topOverflow = Math.max(0, sourceHexTop - opaqueBounds.minY);
+  const bottomOverflow = Math.max(0, opaqueBounds.maxY - sourceHexBottom);
+
+  const targetCoreWidth = TARGET_TERRAIN_CORE_WIDTH;
+  const targetRadius = targetCoreWidth / 2;
+  const scale = targetRadius / sourceRadius;
+  const targetHexHalfHeight = targetRadius * Math.sin(Math.PI / 3) * TARGET_TERRAIN_HEX_SQUASH;
+  const targetLeftOverflow = Math.max(0, Math.ceil(leftOverflow * scale));
+  const targetRightOverflow = Math.max(0, Math.ceil(rightOverflow * scale));
+  const targetTopOverflow = Math.max(0, Math.ceil(topOverflow * scale));
+  const targetBottomOverflow = Math.max(0, Math.ceil(bottomOverflow * scale));
+  const outputWidth = TARGET_TERRAIN_OUTPUT_WIDTH;
+  const outputHeight = TARGET_TERRAIN_OUTPUT_HEIGHT;
+  const scaledWidth = Math.max(1, Math.round(sourceWidth * scale));
+  const scaledHeight = Math.max(1, Math.round(sourceHeight * scale));
+  const targetCenterX = outputWidth * TARGET_TERRAIN_CENTER_X;
+  const targetCenterY = outputHeight * TARGET_TERRAIN_CENTER_Y;
+  const compositeLeft = Math.round(targetCenterX - sourceCenterX * scale);
+  const compositeTop = Math.round(targetCenterY - sourceCenterY * scale);
+  const scaledInput = await sharp(data, {
+    raw: { width: sourceWidth, height: sourceHeight, channels: info.channels },
+  }).resize(scaledWidth, scaledHeight, {
+    fit: 'fill',
+    kernel: sharp.kernel.lanczos3,
+  }).png().toBuffer();
+
+  const sourceClipLeft = Math.max(0, -compositeLeft);
+  const sourceClipTop = Math.max(0, -compositeTop);
+  const visibleWidth = Math.max(0, Math.min(scaledWidth - sourceClipLeft, outputWidth - Math.max(0, compositeLeft)));
+  const visibleHeight = Math.max(0, Math.min(scaledHeight - sourceClipTop, outputHeight - Math.max(0, compositeTop)));
+
+  let compositeInput = scaledInput;
+  let compositeX = Math.max(0, compositeLeft);
+  let compositeY = Math.max(0, compositeTop);
+
+  if (visibleWidth <= 0 || visibleHeight <= 0) {
+    throw new Error('Terrain normalization produced an empty output. Adjust the overlay and try again.');
+  }
+
+  if (sourceClipLeft > 0 || sourceClipTop > 0 || visibleWidth < scaledWidth || visibleHeight < scaledHeight) {
+    compositeInput = await sharp(scaledInput, sharpInputOptions).extract({
+      left: sourceClipLeft,
+      top: sourceClipTop,
+      width: visibleWidth,
+      height: visibleHeight,
+    }).png().toBuffer();
+  }
+
+  const outputBuffer = await sharp({
+    create: {
+      width: outputWidth,
+      height: outputHeight,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  }).composite([{ input: compositeInput, left: compositeX, top: compositeY }]).png().toBuffer();
+
+  const clippedLeft = sourceClipLeft > 0;
+  const clippedTop = sourceClipTop > 0;
+  const clippedRight = sourceClipLeft + visibleWidth < scaledWidth;
+  const clippedBottom = sourceClipTop + visibleHeight < scaledHeight;
+  const clippingNotes = [];
+  if (clippedLeft || clippedTop || clippedRight || clippedBottom) {
+    clippingNotes.push(`Overflow clipped to fit ${outputWidth}×${outputHeight} canvas — left ${clippedLeft ? 'yes' : 'no'}, top ${clippedTop ? 'yes' : 'no'}, right ${clippedRight ? 'yes' : 'no'}, bottom ${clippedBottom ? 'yes' : 'no'}.`);
+  }
+
+  return {
+    outputBuffer,
+    exportWidth: outputWidth,
+    exportHeight: outputHeight,
+    suggestedDisplayWidth: targetCoreWidth,
+    suggestedDisplayHeight: Math.round(targetHexHalfHeight * 2),
+    normalizedHexOverlay: {
+      centerX: targetCenterX / outputWidth,
+      centerY: targetCenterY / outputHeight,
+      radius: targetRadius / outputWidth,
+      squashY: TARGET_TERRAIN_HEX_SQUASH,
+      topOverflow: targetTopOverflow / outputHeight,
+    },
+    notes: [
+      `Terrain tile normalized to a ${targetCoreWidth}px core hex footprint.`,
+      `Scaled overflow budget — left ${targetLeftOverflow}px, right ${targetRightOverflow}px, top ${targetTopOverflow}px, bottom ${targetBottomOverflow}px.`,
+      ...clippingNotes,
+    ],
   };
 }
 
@@ -595,8 +756,7 @@ async function updateCatalogAsset(previousAssetId, metadata) {
     generatedAt: new Date().toISOString(),
     assets: filtered,
   };
-  await fs.writeFile(catalogPath, JSON.stringify(nextCatalog, null, 2));
-  await fs.writeFile(generatedManifestPath, buildGeneratedManifest(nextCatalog.assets));
+  await writeCatalogArtifacts(nextCatalog);
 }
 
 async function removeCatalogAsset(assetId) {
@@ -606,8 +766,7 @@ async function removeCatalogAsset(assetId) {
     generatedAt: new Date().toISOString(),
     assets: filtered,
   };
-  await fs.writeFile(catalogPath, JSON.stringify(nextCatalog, null, 2));
-  await fs.writeFile(generatedManifestPath, buildGeneratedManifest(nextCatalog.assets));
+  await writeCatalogArtifacts(nextCatalog);
 }
 
 async function findCatalogAsset(assetId) {
@@ -624,8 +783,226 @@ async function readCatalog() {
   }
 }
 
+async function initializeGeneratedArtifacts() {
+  const catalog = await readCatalog();
+  await writeCatalogArtifacts(catalog);
+}
+
+async function writeCatalogArtifacts(catalog) {
+  await fs.writeFile(catalogPath, JSON.stringify(catalog, null, 2));
+  await fs.writeFile(generatedManifestPath, buildGeneratedManifest(catalog.assets));
+  await rebuildTerrainAtlases(catalog.assets);
+}
+
+async function rebuildTerrainAtlases(assets) {
+  const terrainAssets = assets
+    .filter((asset) => asset.status !== 'archived')
+    .filter((asset) => asset.terrainTile?.generateAtlas)
+    .filter((asset) => typeof asset.outputAbsolutePath === 'string' && asset.outputAbsolutePath.length > 0);
+
+  const groups = new Map();
+  for (const asset of terrainAssets) {
+    const atlasGroup = sanitizeAtlasGroup(asset.terrainTile?.atlasGroup);
+    const existingGroup = groups.get(atlasGroup) ?? [];
+    existingGroup.push(asset);
+    groups.set(atlasGroup, existingGroup);
+  }
+
+  await fs.mkdir(terrainAtlasesRoot, { recursive: true });
+
+  const manifest = {
+    generatedAt: new Date().toISOString(),
+    atlases: [],
+  };
+  const expectedFiles = new Set();
+
+  for (const [group, groupAssets] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const atlas = await buildTerrainAtlasGroup(group, groupAssets);
+    const imageAbsolutePath = path.join(terrainAtlasesRoot, `${group}.${TERRAIN_ATLAS_IMAGE_EXTENSION}`);
+    const dataAbsolutePath = path.join(terrainAtlasesRoot, `${group}.atlas.json`);
+    const imageRelativePath = path.relative(repoRoot, imageAbsolutePath).replace(/\\/g, '/');
+    const dataRelativePath = path.relative(repoRoot, dataAbsolutePath).replace(/\\/g, '/');
+
+    await Promise.all([
+      fs.writeFile(imageAbsolutePath, atlas.imageBuffer),
+      fs.writeFile(dataAbsolutePath, JSON.stringify(atlas.atlasData, null, 2)),
+    ]);
+
+    expectedFiles.add(path.basename(imageAbsolutePath));
+    expectedFiles.add(path.basename(dataAbsolutePath));
+
+    manifest.atlases.push({
+      group,
+      imageRelativePath,
+      dataRelativePath,
+      tileCount: atlas.tileCount,
+      columns: atlas.columns,
+      rows: atlas.rows,
+      cellSize: atlas.cellSize,
+      terrainTypes: atlas.terrainTypes,
+      assets: atlas.assets,
+    });
+  }
+
+  await cleanupStaleTerrainAtlasFiles(expectedFiles);
+  await fs.writeFile(terrainAtlasManifestPath, JSON.stringify(manifest, null, 2));
+}
+
+async function buildTerrainAtlasGroup(group, assets) {
+  const sortedAssets = [...assets].sort(compareTerrainAtlasAssets);
+  const assetImages = await Promise.all(sortedAssets.map(async (asset) => {
+    const metadata = await sharp(asset.outputAbsolutePath, sharpInputOptions).metadata();
+    const width = Math.max(1, metadata.width ?? asset.exportSize?.width ?? TARGET_TERRAIN_OUTPUT_WIDTH);
+    const height = Math.max(1, metadata.height ?? asset.exportSize?.height ?? TARGET_TERRAIN_OUTPUT_HEIGHT);
+    return {
+      asset,
+      width,
+      height,
+    };
+  }));
+
+  const cellWidth = Math.max(...assetImages.map((entry) => entry.width), TARGET_TERRAIN_OUTPUT_WIDTH);
+  const cellHeight = Math.max(...assetImages.map((entry) => entry.height), TARGET_TERRAIN_OUTPUT_HEIGHT);
+  const tileCount = assetImages.length;
+  const columns = Math.max(1, Math.ceil(Math.sqrt(tileCount)));
+  const rows = Math.max(1, Math.ceil(tileCount / columns));
+  const atlasWidth = columns * cellWidth + Math.max(0, columns - 1) * TERRAIN_ATLAS_PADDING;
+  const atlasHeight = rows * cellHeight + Math.max(0, rows - 1) * TERRAIN_ATLAS_PADDING;
+  const composites = [];
+  const frames = {};
+  const terrainTypeIndex = {};
+  const manifestAssets = [];
+
+  for (let index = 0; index < assetImages.length; index += 1) {
+    const { asset, width, height } = assetImages[index];
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const x = column * (cellWidth + TERRAIN_ATLAS_PADDING);
+    const y = row * (cellHeight + TERRAIN_ATLAS_PADDING);
+
+    composites.push({
+      input: asset.outputAbsolutePath,
+      left: x,
+      top: y,
+    });
+
+    const terrainType = asset.terrainTile?.terrainType ?? 'unknown';
+    const variant = asset.terrainTile?.variant ?? 1;
+    const coreHex = asset.terrainTile?.coreHex ?? {
+      centerX: TARGET_TERRAIN_CENTER_X,
+      centerY: TARGET_TERRAIN_CENTER_Y,
+      radius: TARGET_TERRAIN_CORE_WIDTH / TARGET_TERRAIN_OUTPUT_WIDTH / 2,
+      squashY: TARGET_TERRAIN_HEX_SQUASH,
+      topOverflow: 0,
+    };
+
+    frames[asset.id] = {
+      frame: { x, y, w: width, h: height },
+      rotated: false,
+      trimmed: false,
+      spriteSourceSize: { x: 0, y: 0, w: width, h: height },
+      sourceSize: { w: width, h: height },
+      pivot: { x: coreHex.centerX ?? TARGET_TERRAIN_CENTER_X, y: coreHex.centerY ?? TARGET_TERRAIN_CENTER_Y },
+      terrain: {
+        terrainType,
+        variant,
+        atlasGroup: group,
+        sourceAssetId: asset.id,
+        coreHex,
+        displaySize: asset.displaySize,
+        outputRelativePath: asset.outputRelativePath,
+      },
+    };
+
+    terrainTypeIndex[terrainType] ??= [];
+    terrainTypeIndex[terrainType].push(asset.id);
+    manifestAssets.push({
+      id: asset.id,
+      terrainType,
+      variant,
+      frameKey: asset.id,
+      coreHex,
+    });
+  }
+
+  const imageBuffer = await sharp({
+    create: {
+      width: atlasWidth,
+      height: atlasHeight,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  }).composite(composites).webp({ quality: 92, alphaQuality: 100, effort: 5 }).toBuffer();
+
+  return {
+    imageBuffer,
+    atlasData: {
+      frames,
+      meta: {
+        app: 'BrotherGame Asset Manager',
+        version: '1.0',
+        image: `${group}.${TERRAIN_ATLAS_IMAGE_EXTENSION}`,
+        format: 'RGBA8888',
+        size: { w: atlasWidth, h: atlasHeight },
+        scale: '1',
+        terrainAtlas: {
+          group,
+          tileCount,
+          columns,
+          rows,
+          cellSize: { width: cellWidth, height: cellHeight },
+          terrainTypes: Object.keys(terrainTypeIndex).sort(),
+          terrainTypeIndex,
+        },
+      },
+    },
+    tileCount,
+    columns,
+    rows,
+    cellSize: { width: cellWidth, height: cellHeight },
+    terrainTypes: Object.keys(terrainTypeIndex).sort(),
+    assets: manifestAssets,
+  };
+}
+
+function compareTerrainAtlasAssets(left, right) {
+  const leftType = left.terrainTile?.terrainType ?? '';
+  const rightType = right.terrainTile?.terrainType ?? '';
+  if (leftType !== rightType) {
+    return leftType.localeCompare(rightType);
+  }
+
+  const leftVariant = Number.isFinite(left.terrainTile?.variant) ? left.terrainTile.variant : 1;
+  const rightVariant = Number.isFinite(right.terrainTile?.variant) ? right.terrainTile.variant : 1;
+  if (leftVariant !== rightVariant) {
+    return leftVariant - rightVariant;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+async function cleanupStaleTerrainAtlasFiles(expectedFiles) {
+  const existingEntries = await fs.readdir(terrainAtlasesRoot, { withFileTypes: true }).catch(() => []);
+  const staleFiles = existingEntries
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => !expectedFiles.has(name));
+
+  await Promise.all(staleFiles.map((name) => fs.rm(path.join(terrainAtlasesRoot, name), { force: true }).catch(() => {})));
+}
+
+function sanitizeAtlasGroup(value) {
+  const sanitized = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  return sanitized || 'hex_tileset';
+}
+
 function buildPersistedMetadata(draft, file, result, existingAsset) {
-  const outputFolder = outputFolders[draft.category] ?? outputFolders.sprites;
+  const outputFolder = getOutputFolderForDraft(draft);
   const outputFilename = `${draft.assetId}.${result.outputFormat}`;
   const outputAbsolutePath = path.join(outputFolder, outputFilename);
   const outputRelativePath = path.relative(repoRoot, outputAbsolutePath).replace(/\\/g, '/');
@@ -646,8 +1023,8 @@ function buildPersistedMetadata(draft, file, result, existingAsset) {
     metadataAbsolutePath,
     metadataRelativePath,
     exportSize: {
-      width: draft.exportWidth,
-      height: draft.exportHeight,
+      width: result.exportWidth ?? draft.exportWidth,
+      height: result.exportHeight ?? draft.exportHeight,
     },
     displaySize: {
       width: result.suggestedDisplayWidth ?? draft.displayWidth,
@@ -674,6 +1051,19 @@ function buildPersistedMetadata(draft, file, result, existingAsset) {
       requestedFrameRate: draft.frameRate,
       sampling: draft.videoSampling,
     },
+    terrainTile: draft.terrainType ? {
+      terrainType: draft.terrainType,
+      variant: Number.isFinite(draft.terrainVariant) ? draft.terrainVariant : 1,
+      atlasGroup: sanitizeAtlasGroup(draft.terrainAtlasGroup),
+      generateAtlas: !!draft.terrainGenerateAtlas,
+      coreHex: result.normalizedHexOverlay ?? draft.terrainHexOverlay ?? {
+        centerX: 0.5,
+        centerY: 0.62,
+        radius: 0.28,
+        squashY: 0.72,
+        topOverflow: 0.22,
+      },
+    } : undefined,
     source: {
       kind: draft.mode === 'video' ? 'video' : 'image',
       name: file.originalname,
@@ -687,7 +1077,7 @@ function buildPersistedMetadata(draft, file, result, existingAsset) {
 }
 
 function buildMetadataOnlyUpdate(existing, draft) {
-  const outputFolder = outputFolders[draft.category] ?? outputFolders.sprites;
+  const outputFolder = getOutputFolderForDraft(draft);
   const outputFilename = `${draft.assetId}.${existing.outputFormat}`;
   const outputAbsolutePath = path.join(outputFolder, outputFilename);
   const outputRelativePath = path.relative(repoRoot, outputAbsolutePath).replace(/\\/g, '/');
@@ -707,8 +1097,8 @@ function buildMetadataOnlyUpdate(existing, draft) {
     metadataAbsolutePath,
     metadataRelativePath,
     exportSize: {
-      width: draft.exportWidth,
-      height: draft.exportHeight,
+      width: existing.exportSize?.width ?? draft.exportWidth,
+      height: existing.exportSize?.height ?? draft.exportHeight,
     },
     displaySize: {
       width: draft.displayWidth,
@@ -735,6 +1125,19 @@ function buildMetadataOnlyUpdate(existing, draft) {
       requestedFrameRate: draft.frameRate,
       sampling: draft.videoSampling,
     },
+    terrainTile: draft.terrainType ? {
+      terrainType: draft.terrainType,
+      variant: Number.isFinite(draft.terrainVariant) ? draft.terrainVariant : existing.terrainTile?.variant ?? 1,
+      atlasGroup: sanitizeAtlasGroup(draft.terrainAtlasGroup || existing.terrainTile?.atlasGroup || 'hex_tileset'),
+      generateAtlas: !!draft.terrainGenerateAtlas,
+      coreHex: draft.terrainHexOverlay ?? existing.terrainTile?.coreHex ?? {
+        centerX: 0.5,
+        centerY: 0.62,
+        radius: 0.28,
+        squashY: 0.72,
+        topOverflow: 0.22,
+      },
+    } : undefined,
     notes: draft.notes,
     status: existing.status ?? 'active',
     archivedAt: existing.status === 'archived' ? existing.archivedAt ?? new Date().toISOString() : undefined,
@@ -759,7 +1162,9 @@ function buildGeneratedManifest(assets) {
       ? `${asset.exportSize.width}×${asset.exportSize.height}`
       : `${asset.spritesheet.columns}×${asset.spritesheet.rows} cells, ${asset.displaySize.width}×${asset.displaySize.height} display`;
     const format = asset.mode === 'image' ? asset.outputFormat : `${asset.outputFormat} spritesheet`;
-    const description = asset.mode === 'video'
+    const description = asset.terrainTile
+      ? `${asset.terrainTile.terrainType.replace(/_/g, ' ')} terrain tile v${String(asset.terrainTile.variant ?? 1).padStart(2, '0')}`
+      : asset.mode === 'video'
       ? `Generated from video (${asset.spritesheet.animationType})`
       : asset.mode === 'spritesheet'
         ? `${asset.spritesheet.animationType} animation sheet`
