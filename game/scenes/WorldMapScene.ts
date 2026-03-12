@@ -236,7 +236,8 @@ interface ScreenHexLabel {
 
 function stableHexHash(q: number, r: number): number {
   // Cantor pairing → single integer, then MurmurHash3 finalizer for full avalanche mixing.
-  // This eliminates the spatial banding that XOR-of-linear-products produces.
+  // The final >>> 0 is required: bitwise XOR returns a signed 32-bit int, which would make
+  // hash % n negative, producing invalid array indices and missing tile sprites.
   const k = (q >= 0 ? 2 * q : -2 * q - 1) * 0x10000 + (r >= 0 ? 2 * r : -2 * r - 1);
   let h = k >>> 0;
   h ^= h >>> 16;
@@ -244,7 +245,7 @@ function stableHexHash(q: number, r: number): number {
   h ^= h >>> 13;
   h = Math.imul(h, 0xc2b2ae35) >>> 0;
   h ^= h >>> 16;
-  return h;
+  return h >>> 0;
 }
 
 function toPublicAssetPath(relativePath: string): string {
@@ -658,12 +659,12 @@ export class WorldMapScene extends Phaser.Scene {
     }
 
     // Wide soft halo pass
-    gfx.lineStyle(6, 0x4af0ff, 0.20);
+    gfx.lineStyle(3, 0x4af0ff, 0.12);
     for (const [ax, ay, bx, by] of outerEdges) {
       gfx.beginPath(); gfx.moveTo(ax, ay); gfx.lineTo(bx, by); gfx.strokePath();
     }
     // Tight bright core pass
-    gfx.lineStyle(2, 0x4af0ff, 0.90);
+    gfx.lineStyle(1, 0x4af0ff, 0.75);
     for (const [ax, ay, bx, by] of outerEdges) {
       gfx.beginPath(); gfx.moveTo(ax, ay); gfx.lineTo(bx, by); gfx.strokePath();
     }
@@ -702,17 +703,19 @@ export class WorldMapScene extends Phaser.Scene {
       const drawTile = (hovered: boolean) => {
         tileGfx.clear();
         if (hasTerrainArt) {
+          // At rest the art is the boundary — no outline needed.
+          // On hover: subtle fill tint + thin bright edge.
           if (hovered) {
-            tileGfx.fillStyle(isCity ? 0xf7c948 : display.color, isCity ? 0.12 : 0.18);
+            tileGfx.fillStyle(isCity ? 0xf7c948 : display.color, 0.15);
             tileGfx.fillPoints(pts, true);
+            tileGfx.lineStyle(1, 0xffffff, 0.70);
+            tileGfx.strokePoints(pts, true);
           }
-          tileGfx.lineStyle(isCity ? (hovered ? 2.5 : 1.5) : (hovered ? 2.0 : 1.25), isCity ? 0xf7c948 : display.color, hovered ? 1 : 0.72);
-          tileGfx.strokePoints(pts, true);
         } else if (isCity) {
           // City hex: normal terrain fill with amber outline (orb drawn separately).
           tileGfx.fillStyle(terrColor, hovered ? 0.90 : 0.75);
           tileGfx.fillPoints(pts, true);
-          tileGfx.lineStyle(hovered ? 2.5 : 1.5, 0xf7c948, hovered ? 1 : 0.70);
+          tileGfx.lineStyle(hovered ? 1.5 : 1, 0xf7c948, hovered ? 0.90 : 0.50);
           tileGfx.strokePoints(pts, true);
         } else {
           tileGfx.fillStyle(terrColor, hovered ? 0.82 : 0.60);
@@ -721,7 +724,7 @@ export class WorldMapScene extends Phaser.Scene {
             tileGfx.fillStyle(display.color, 0.25);
             tileGfx.fillPoints(pts, true);
           }
-          tileGfx.lineStyle(hovered ? 2.5 : 1.5, display.color, hovered ? 1 : 0.70);
+          tileGfx.lineStyle(hovered ? 1.5 : 1, display.color, hovered ? 0.90 : 0.50);
           tileGfx.strokePoints(pts, true);
         }
       };
