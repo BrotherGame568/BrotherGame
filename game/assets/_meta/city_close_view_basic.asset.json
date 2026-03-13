@@ -1,0 +1,35 @@
+{
+  "id": "city_close_view_basic",
+  "name": "City Close View Basic",
+  "status": "active",
+  "category": "backgrounds",
+  "mode": "image",
+  "outputFormat": "webp",
+  "maintainAspectRatio": true,
+  "resizeFit": "contain",
+  "outputRelativePath": "game/assets/backgrounds/city_close_view_basic.webp",
+  "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\backgrounds\\city_close_view_basic.webp",
+  "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\city_close_view_basic.asset.json",
+  "metadataRelativePath": "game/assets/_meta/city_close_view_basic.asset.json",
+  "exportSize": {
+    "width": 2752,
+    "height": 1536
+  },
+  "displaySize": {
+    "width": 2752,
+    "height": 1536
+  },
+  "optimization": {
+    "enabled": true,
+    "backgroundRemovalRequested": false,
+    "notes": []
+  },
+  "source": {
+    "kind": "image",
+    "name": "City_Close_View_Basic.png",
+    "mimeType": "image/png",
+    "sizeBytes": 3710721
+  },
+  "generatedAt": "2026-03-09T05:43:21.614Z",
+  "notes": ""
+}

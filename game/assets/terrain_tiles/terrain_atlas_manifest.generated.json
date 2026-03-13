@@ -1,0 +1,342 @@
+{
+  "generatedAt": "2026-03-13T03:41:01.048Z",
+  "atlases": [
+    {
+      "group": "hex_tileset",
+      "imageRelativePath": "game/assets/terrain_tiles/atlases/hex_tileset.webp",
+      "dataRelativePath": "game/assets/terrain_tiles/atlases/hex_tileset.atlas.json",
+      "tileCount": 24,
+      "columns": 5,
+      "rows": 5,
+      "cellSize": {
+        "width": 384,
+        "height": 384
+      },
+      "terrainTypes": [
+        "alpine",
+        "bare_rock",
+        "desert_dunes",
+        "mangrove",
+        "savanna",
+        "shallow_sea",
+        "snow_peaks",
+        "temperate_forest",
+        "woodland"
+      ],
+      "assets": [
+        {
+          "id": "terrain_alpine_01",
+          "terrainType": "alpine",
+          "variant": 1,
+          "frameKey": "terrain_alpine_01",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.09114583333333333
+          }
+        },
+        {
+          "id": "terrain_alpine_02",
+          "terrainType": "alpine",
+          "variant": 2,
+          "frameKey": "terrain_alpine_02",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.09114583333333333
+          }
+        },
+        {
+          "id": "terrain_alpine_03",
+          "terrainType": "alpine",
+          "variant": 3,
+          "frameKey": "terrain_alpine_03",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.057291666666666664
+          }
+        },
+        {
+          "id": "terrain_alpine_04",
+          "terrainType": "alpine",
+          "variant": 4,
+          "frameKey": "terrain_alpine_04",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.0078125
+          }
+        },
+        {
+          "id": "terrain_alpine_05",
+          "terrainType": "alpine",
+          "variant": 5,
+          "frameKey": "terrain_alpine_05",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.078125
+          }
+        },
+        {
+          "id": "terrain_alpine_06",
+          "terrainType": "alpine",
+          "variant": 6,
+          "frameKey": "terrain_alpine_06",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.044270833333333336
+          }
+        },
+        {
+          "id": "terrain_bare_rock_01",
+          "terrainType": "bare_rock",
+          "variant": 1,
+          "frameKey": "terrain_bare_rock_01",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.13020833333333334
+          }
+        },
+        {
+          "id": "terrain_desert_dunes_01",
+          "terrainType": "desert_dunes",
+          "variant": 1,
+          "frameKey": "terrain_desert_dunes_01",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.0625
+          }
+        },
+        {
+          "id": "terrain_mangrove_01",
+          "terrainType": "mangrove",
+          "variant": 1,
+          "frameKey": "terrain_mangrove_01",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.1640625
+          }
+        },
+        {
+          "id": "terrain_mangrove_02",
+          "terrainType": "mangrove",
+          "variant": 2,
+          "frameKey": "terrain_mangrove_02",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.13802083333333334
+          }
+        },
+        {
+          "id": "terrain_savanna_01",
+          "terrainType": "savanna",
+          "variant": 1,
+          "frameKey": "terrain_savanna_01",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.026041666666666668
+          }
+        },
+        {
+          "id": "terrain_shallow_sea_01",
+          "terrainType": "shallow_sea",
+          "variant": 1,
+          "frameKey": "terrain_shallow_sea_01",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.049479166666666664
+          }
+        },
+        {
+          "id": "terrain_shallow_sea_02",
+          "terrainType": "shallow_sea",
+          "variant": 2,
+          "frameKey": "terrain_shallow_sea_02",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.013020833333333334
+          }
+        },
+        {
+          "id": "terrain_snow_peaks_01",
+          "terrainType": "snow_peaks",
+          "variant": 1,
+          "frameKey": "terrain_snow_peaks_01",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.1484375
+          }
+        },
+        {
+          "id": "terrain_snow_peaks_02",
+          "terrainType": "snow_peaks",
+          "variant": 2,
+          "frameKey": "terrain_snow_peaks_02",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.1953125
+          }
+        },
+        {
+          "id": "terrain_snow_peaks_03",
+          "terrainType": "snow_peaks",
+          "variant": 3,
+          "frameKey": "terrain_snow_peaks_03",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.0234375
+          }
+        },
+        {
+          "id": "terrain_snow_peaks_04",
+          "terrainType": "snow_peaks",
+          "variant": 4,
+          "frameKey": "terrain_snow_peaks_04",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.026041666666666668
+          }
+        },
+        {
+          "id": "terrain_snow_peaks_05",
+          "terrainType": "snow_peaks",
+          "variant": 5,
+          "frameKey": "terrain_snow_peaks_05",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.018229166666666668
+          }
+        },
+        {
+          "id": "terrain_snow_peaks_06",
+          "terrainType": "snow_peaks",
+          "variant": 6,
+          "frameKey": "terrain_snow_peaks_06",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.010416666666666666
+          }
+        },
+        {
+          "id": "terrain_snow_peaks_07",
+          "terrainType": "snow_peaks",
+          "variant": 7,
+          "frameKey": "terrain_snow_peaks_07",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.052083333333333336
+          }
+        },
+        {
+          "id": "terrain_snow_peaks_08",
+          "terrainType": "snow_peaks",
+          "variant": 8,
+          "frameKey": "terrain_snow_peaks_08",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.015625
+          }
+        },
+        {
+          "id": "terrain_temperate_forest_01",
+          "terrainType": "temperate_forest",
+          "variant": 1,
+          "frameKey": "terrain_temperate_forest_01",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.12239583333333333
+          }
+        },
+        {
+          "id": "terrain_woodland_01",
+          "terrainType": "woodland",
+          "variant": 1,
+          "frameKey": "terrain_woodland_01",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.125
+          }
+        },
+        {
+          "id": "terrain_woodland_02",
+          "terrainType": "woodland",
+          "variant": 2,
+          "frameKey": "terrain_woodland_02",
+          "coreHex": {
+            "centerX": 0.5,
+            "centerY": 0.55,
+            "radius": 0.3333333333333333,
+            "squashY": 0.55,
+            "topOverflow": 0.1328125
+          }
+        }
+      ]
+    }
+  ]
+}

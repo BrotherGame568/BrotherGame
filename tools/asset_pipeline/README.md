@@ -116,6 +116,9 @@ The tool maintains these files:
 - `game/assets/manifest.catalog.json`
 - `game/assets/MANIFEST.generated.md`
 - `game/assets/_meta/*.asset.json`
+- `game/assets/terrain_tiles/terrain_atlas_manifest.generated.json`
+- `game/assets/terrain_tiles/atlases/*.webp`
+- `game/assets/terrain_tiles/atlases/*.atlas.json`
 
 Treat them as tool-managed outputs.
 

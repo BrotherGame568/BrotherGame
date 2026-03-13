@@ -1,0 +1,53 @@
+{
+  "id": "terrain_alpine_06",
+  "name": "Alpine 06",
+  "status": "active",
+  "category": "sprites",
+  "mode": "image",
+  "outputFormat": "webp",
+  "maintainAspectRatio": true,
+  "resizeFit": "contain",
+  "outputRelativePath": "game/assets/terrain_tiles/terrain_alpine_06.webp",
+  "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_alpine_06.webp",
+  "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_alpine_06.asset.json",
+  "metadataRelativePath": "game/assets/_meta/terrain_alpine_06.asset.json",
+  "exportSize": {
+    "width": 384,
+    "height": 384
+  },
+  "displaySize": {
+    "width": 256,
+    "height": 122
+  },
+  "optimization": {
+    "enabled": true,
+    "backgroundRemovalRequested": true,
+    "cropToBoundingBoxRequested": false,
+    "notes": [
+      "Local matte background removal applied using corner-color sampling.",
+      "Terrain tile normalized to a 256px core hex footprint.",
+      "Scaled overflow budget — left 14px, right 11px, top 17px, bottom 49px."
+    ]
+  },
+  "terrainTile": {
+    "terrainType": "alpine",
+    "variant": 6,
+    "atlasGroup": "hex_tileset",
+    "generateAtlas": true,
+    "coreHex": {
+      "centerX": 0.5,
+      "centerY": 0.55,
+      "radius": 0.3333333333333333,
+      "squashY": 0.55,
+      "topOverflow": 0.044270833333333336
+    }
+  },
+  "source": {
+    "kind": "image",
+    "name": "Alpine6.png",
+    "mimeType": "image/png",
+    "sizeBytes": 282469
+  },
+  "generatedAt": "2026-03-13T03:41:01.042Z",
+  "notes": ""
+}

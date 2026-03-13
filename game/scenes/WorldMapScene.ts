@@ -33,6 +33,11 @@ const MIN_ZOOM     = 0.12; // allows zooming out to see most of the map
 const MAX_ZOOM     = 14.0;
 // Starting zoom: show roughly a 22-ring viewport width, not the whole map
 const INITIAL_ZOOM = 2.0;
+const TERRAIN_ATLAS_MANIFEST_KEY = 'terrain_atlas_manifest';
+const TERRAIN_ATLAS_TEXTURE_PREFIX = 'terrain_atlas_';
+const TERRAIN_TILE_FALLBACK_CORE_RADIUS = 1 / 3;
+/** Minimum zoom at which terrain art sprites are created — below this only color fills show. */
+const TERRAIN_ART_MIN_ZOOM = LABEL_ZOOM * 1.00; // = 3.5 — only kicks in once fully zoomed into the interactive layer
 
 // ── Particle system tuning ─────────────────────────────────────────────────
 /** Particles per corridor for the inactive (ghost) corridors. */
@@ -50,13 +55,74 @@ const BAND_SPREAD_GHOST     = TILE_R * 1.5;
 const STREAM_DRIFT          = TILE_R * 0.3;
 
 /**
- * Returns a biome colour for world hex (q, r).
+ * Returns a terrain biome bucket for world hex (q, r).
  *
  * Elevation = FBM + a continental-shelf boost that raises the centre of the
  * world above sea level, guaranteeing land near the city regardless of noise.
  * Moisture is an independent FBM channel controlling vegetation type.
  */
-function worldTileColor(q: number, r: number): number {
+type TerrainBiome =
+  | 'abyssal_trench'
+  | 'deep_ocean'
+  | 'open_ocean'
+  | 'shallow_sea'
+  | 'mangrove'
+  | 'sand_beach'
+  | 'snow_peaks'
+  | 'bare_rock'
+  | 'alpine'
+  | 'dense_rainforest'
+  | 'temperate_forest'
+  | 'woodland'
+  | 'plains'
+  | 'savanna'
+  | 'scrub_steppe'
+  | 'desert_dunes';
+
+interface TerrainAtlasCoreHex {
+  centerX: number;
+  centerY: number;
+  radius: number;
+  squashY: number;
+  topOverflow: number;
+}
+
+interface TerrainAtlasManifestAsset {
+  id: string;
+  terrainType: TerrainBiome;
+  variant: number;
+  frameKey: string;
+  coreHex?: TerrainAtlasCoreHex;
+}
+
+interface TerrainAtlasManifestEntry {
+  group: string;
+  imageRelativePath: string;
+  dataRelativePath: string;
+  tileCount: number;
+  columns: number;
+  rows: number;
+  cellSize: { width: number; height: number };
+  terrainTypes: TerrainBiome[];
+  assets: TerrainAtlasManifestAsset[];
+}
+
+interface TerrainAtlasManifest {
+  generatedAt: string;
+  atlases: TerrainAtlasManifestEntry[];
+}
+
+interface TerrainAtlasVariant {
+  textureKey: string;
+  frameKey: string;
+  terrainType: TerrainBiome;
+  variant: number;
+  coreHex: TerrainAtlasCoreHex;
+  frameWidth: number;
+  frameHeight: number;
+}
+
+function worldTileBiome(q: number, r: number): TerrainBiome {
   const nx = q + r * 0.5;
   const ny = r * 0.866;
   const sc = 1 / 8;   // coarser scale → bigger blobs, clearly visible at zoom 2
@@ -72,24 +138,63 @@ function worldTileColor(q: number, r: number): number {
   const m = rawM;
 
   // ── Water ────────────────────────────────────────────────
-  if (e < 0.08) return 0x020c18;   // abyssal trench
-  if (e < 0.18) return 0x071828;   // deep ocean
-  if (e < 0.28) return 0x0d2e52;   // open ocean
-  if (e < 0.36) return 0x165c80;   // shallow sea
-  if (e < 0.42) return m > 0.52 ? 0x2a8060 : 0xb8aa72; // mangrove / sand beach
+  if (e < 0.08) return 'abyssal_trench';
+  if (e < 0.18) return 'deep_ocean';
+  if (e < 0.28) return 'open_ocean';
+  if (e < 0.36) return 'shallow_sea';
+  if (e < 0.42) return m > 0.52 ? 'mangrove' : 'sand_beach';
 
   // ── Alpine ───────────────────────────────────────────────
-  if (e > 0.90) return 0xdce8f0;   // snow peaks
-  if (e > 0.78) return m < 0.38 ? 0x7c6a50 : 0x606858; // bare rock / alpine
+  if (e > 0.90) return 'snow_peaks';
+  if (e > 0.78) return m < 0.38 ? 'bare_rock' : 'alpine';
 
   // ── Mainland (by moisture) ────────────────────────────────
-  if (m > 0.74) return e > 0.64 ? 0x1e6828 : 0x30943c; // dense rainforest
-  if (m > 0.60) return e > 0.64 ? 0x347838 : 0x46a84e; // temperate forest
-  if (m > 0.48) return e > 0.63 ? 0x4e9040 : 0x66b84e; // woodland / mixed
-  if (m > 0.36) return e > 0.62 ? 0x70a030 : 0x96c840; // grassland / plains
-  if (m > 0.24) return e > 0.60 ? 0x8c8c28 : 0xb0b038; // savanna / dry grass
-  if (m > 0.14) return e > 0.58 ? 0xa07832 : 0xc8a84a; // scrub / steppe
-  return e > 0.56 ? 0xb86820 : 0xe0b85a;                // desert / golden dunes
+  if (m > 0.74) return e > 0.64 ? 'dense_rainforest' : 'temperate_forest';
+  if (m > 0.60) return e > 0.64 ? 'temperate_forest' : 'woodland';
+  if (m > 0.48) return e > 0.63 ? 'woodland' : 'plains';
+  if (m > 0.36) return e > 0.62 ? 'plains' : 'savanna';
+  if (m > 0.24) return e > 0.60 ? 'savanna' : 'scrub_steppe';
+  if (m > 0.14) return e > 0.58 ? 'scrub_steppe' : 'desert_dunes';
+  return 'desert_dunes';
+}
+
+const TERRAIN_BIOME_COLORS: Record<TerrainBiome, number> = {
+  abyssal_trench:   0x020c18,
+  deep_ocean:       0x071828,
+  open_ocean:       0x0d2e52,
+  shallow_sea:      0x165c80,
+  mangrove:         0x2a8060,
+  sand_beach:       0xb8aa72,
+  snow_peaks:       0xdce8f0,
+  bare_rock:        0x7c6a50,
+  alpine:           0x606858,
+  dense_rainforest: 0x1e6828,
+  temperate_forest: 0x347838,
+  woodland:         0x4e9040,
+  plains:           0x96c840,
+  savanna:          0xb0b038,
+  scrub_steppe:     0xc8a84a,
+  desert_dunes:     0xe0b85a,
+};
+
+function worldTileColor(q: number, r: number): number {
+  return TERRAIN_BIOME_COLORS[worldTileBiome(q, r)];
+}
+
+/** Lighten a packed 0xRRGGBB colour by adding `amount` to each channel. */
+function lightenColor(col: number, amount: number): number {
+  const r = Math.min(255, ((col >> 16) & 0xff) + amount);
+  const g = Math.min(255, ((col >>  8) & 0xff) + amount);
+  const b = Math.min(255, ( col        & 0xff) + amount);
+  return (r << 16) | (g << 8) | b;
+}
+
+/** Darken a packed 0xRRGGBB colour by subtracting `amount` from each channel. */
+function darkenColor(col: number, amount: number): number {
+  const r = Math.max(0, ((col >> 16) & 0xff) - amount);
+  const g = Math.max(0, ((col >>  8) & 0xff) - amount);
+  const b = Math.max(0, ( col        & 0xff) - amount);
+  return (r << 16) | (g << 8) | b;
 }
 
 
@@ -129,6 +234,34 @@ interface ScreenHexLabel {
   text: Phaser.GameObjects.Text;
 }
 
+function stableHexHash(q: number, r: number): number {
+  // Cantor pairing → single integer, then MurmurHash3 finalizer for full avalanche mixing.
+  // The final >>> 0 is required: bitwise XOR returns a signed 32-bit int, which would make
+  // hash % n negative, producing invalid array indices and missing tile sprites.
+  const k = (q >= 0 ? 2 * q : -2 * q - 1) * 0x10000 + (r >= 0 ? 2 * r : -2 * r - 1);
+  let h = k >>> 0;
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b) >>> 0;
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35) >>> 0;
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+function toPublicAssetPath(relativePath: string): string {
+  return relativePath.replace(/^game\/assets\//, '');
+}
+
+function defaultTerrainCoreHex(): TerrainAtlasCoreHex {
+  return {
+    centerX: 0.5,
+    centerY: 0.55,
+    radius: TERRAIN_TILE_FALLBACK_CORE_RADIUS,
+    squashY: TILE_SY,
+    topOverflow: 0,
+  };
+}
+
 export class WorldMapScene extends Phaser.Scene {
   private gsm!:             IGameStateManager;
   private tradewindSystem!: ITradewindSystem;
@@ -147,10 +280,55 @@ export class WorldMapScene extends Phaser.Scene {
   private _networkGfx:    Phaser.GameObjects.Graphics | null = null;
   /** Reference to the world terrain graphics layer (for zoom-based alpha). */
   private _terrainGfx:    Phaser.GameObjects.Graphics | null = null;
+  /** Hex grid stroke layer — separate from fills so it can fade at far zoom. */
+  private _terrainLineGfx:   Phaser.GameObjects.Graphics | null = null;
+  /** Bevel shading layer — highlight/shadow tints reveal 3-D form at close zoom. */
+  private _terrainDetailGfx: Phaser.GameObjects.Graphics | null = null;
+  /** Cloud puff container inside mapContainer — drifts across the world. */
+  private _cloudContainer:   Phaser.GameObjects.Container | null = null;
+  /** Per-cloud drift data for update(). */
+  private _cloudData: Array<{
+    gfx: Phaser.GameObjects.Graphics;
+    vx: number; vy: number; wrapHalfW: number; wrapHalfH: number;
+  }> = [];
+  /** Full-screen aerial haze overlay at scene level (not in mapContainer). */
+  private _hazeGfx:     Phaser.GameObjects.Graphics | null = null;
+  /** Full-screen lens vignette at scene level. */
+  private _vignetteGfx: Phaser.GameObjects.Graphics | null = null;
+  /** Screen-space top/edge horizon haze — sky-blue gradient fading inward. */
+  private _horizonHazeGfx: Phaser.GameObjects.Graphics | null = null;
+  /** Thin horizontal wind wisps drifting across the screen. */
+  private _windStreakGfx: Phaser.GameObjects.Graphics | null = null;
+  private _windStreaks: Array<{ x: number; y: number; len: number; alpha: number; speed: number }> = [];
+  /** Soft cast-shadow ellipse beneath the floating city, drawn on terrain. */
+  private _shadowGfx:   Phaser.GameObjects.Graphics | null = null;
+  /** Floating info card shown when a corridor is clicked. */
+  private _corridorInfoCard:  Phaser.GameObjects.Container | null = null;
+  /** ID of the corridor the pointer was over at pointerdown (to detect clean clicks). */
+  private _clickedCorridorId: string | null = null;
   /** Permanent outline ring drawn at the edge of the reachable hex area. */
   private _reachOutlineGfx: Phaser.GameObjects.Graphics | null = null;
   /** Terrain fill graphics for each game tile — hidden when zoomed far out. */
   private _gameTileGfxList: Phaser.GameObjects.Graphics[] = [];
+  /** Close-up terrain art sprites generated from atlas variants. */
+  private _terrainTileSprites: Phaser.GameObjects.Image[] = [];
+  /** Container in mapContainer that holds all world terrain art sprites (above fills, below grid lines). */
+  private _terrainSpriteContainer: Phaser.GameObjects.Container | null = null;
+  /** Viewport-culled terrain art sprites keyed by hexId — added/removed as camera pans/zooms. */
+  private _worldTerrainSprites: Map<string, Phaser.GameObjects.Image> = new Map();
+  /** Camera state at the last terrain sprite sync, to throttle redundant pan-syncs. */
+  private _lastTerrainSyncCtrX = 0;
+  private _lastTerrainSyncCtrY = 0;
+  private _lastTerrainSyncZoom = -1;
+  /** Runtime atlas manifest describing available terrain variants. */
+  private _terrainAtlasManifest: TerrainAtlasManifest | null = null;
+  /** Variant lookup by biome bucket for deterministic tile art selection. */
+  private _terrainVariantsByType: Map<TerrainBiome, TerrainAtlasVariant[]> = new Map();
+  /** True while dynamic atlas loading is in flight. */
+  private _terrainAtlasesLoading = false;
+  /** Set when the variant index is rebuilt but sync couldn't run (zoom too low). */
+  private _pendingTerrainSync = false;
+
   /** Dark distance fog drawn between terrain and corridors. */
   private _fogGfx:            Phaser.GameObjects.Graphics | null = null;
   /** Interactive zones along corridor spines for hover detection. */
@@ -183,8 +361,9 @@ export class WorldMapScene extends Phaser.Scene {
   /** Junction selection panel. */
   private _junctionOverlay: Phaser.GameObjects.Container | null = null;
   private cityDot: Phaser.GameObjects.Graphics | null = null;
-  /** Zoomed-in city sprite (CityZoom.png), bobbing gently. Hidden when zoomed out. */
+  /** Zoomed-in city sprite (cityzoom.webp), bobbing gently. Hidden when zoomed out. */
   private _citySprite:   Phaser.GameObjects.Image | null = null;
+  private _cityBobBaseX: number = 0;
   private _cityBobBaseY: number = 0;
   /** True while the city movement tween is playing — blocks new End Cycle clicks. */
   private _cityMoving    = false;
@@ -204,6 +383,8 @@ export class WorldMapScene extends Phaser.Scene {
   private dragStartY  = 0;
   private ctnrStartX  = 0;
   private ctnrStartY  = 0;
+  private _parallaxX  = 0;
+  private _parallaxY  = 0;
   private mapCtrY     = 0;
 
   private routeOverlay:   Phaser.GameObjects.Container | null = null;
@@ -238,7 +419,21 @@ export class WorldMapScene extends Phaser.Scene {
     this.screenLabels    = [];
     this._networkGfx         = null;
     this._terrainGfx          = null;
-    this._reachOutlineGfx     = null;
+    this._terrainLineGfx      = null;
+    this._terrainDetailGfx    = null;
+    this._cloudContainer      = null;
+    this._cloudData            = [];
+    this._hazeGfx              = null;
+    this._vignetteGfx          = null;
+    this._reachOutlineGfx      = null;
+    this._terrainSpriteContainer = null;
+    this._worldTerrainSprites    = new Map();
+    this._lastTerrainSyncZoom    = -1;
+    this._terrainTileSprites     = [];
+    this._terrainAtlasManifest = null;
+    this._terrainVariantsByType = new Map();
+    this._terrainAtlasesLoading = false;
+    this._pendingTerrainSync = false;
     this._streamGfx           = null;
     this._particleData        = [];
     this._junctionOverlay     = null;
@@ -262,8 +457,9 @@ export class WorldMapScene extends Phaser.Scene {
 
   preload(): void {
     if (!this.textures.exists('city_zoom')) {
-      this.load.image('city_zoom', 'sprites/CityZoom.png');
+      this.load.image('city_zoom', 'sprites/cityzoom.webp');
     }
+    this.load.json(TERRAIN_ATLAS_MANIFEST_KEY, 'terrain_tiles/terrain_atlas_manifest.generated.json');
   }
 
   create(): void {
@@ -303,9 +499,11 @@ export class WorldMapScene extends Phaser.Scene {
     this._buildWorldBackground();
     this._buildFogOverlay();         // distance-based dark veil between terrain and corridors
     this._renderWindNetwork();       // persistent corridor bands + spines + junction markers
+    this._buildClouds();             // animated cloud layer (above corridors, below city)
 
     this.gameTileContainer = this.add.container(0, 0);
     this.mapContainer.add(this.gameTileContainer);
+    this._prepareTerrainAtlases();
     this._buildGameTiles();
     this._buildParticles();      // animated dots flowing along corridor spines
     this._updateLabelVisibility();
@@ -338,6 +536,38 @@ export class WorldMapScene extends Phaser.Scene {
       }
     });
 
+    this._buildHaze(W, H);           // scene-level aerial haze + vignette
+
+    // ── Horizon haze: top-biased sky-blue gradient, always-on ───────────────
+    const horizGfx = this.add.graphics().setDepth(4);
+    this._horizonHazeGfx = horizGfx;
+    const HZ_N = 28;
+    for (let i = 0; i < HZ_N; i++) {
+      const t = i / HZ_N;
+      const bandH = H * 0.35 / HZ_N;
+      horizGfx.fillStyle(0xb8d8ee, Math.pow(1 - t, 2.2) * 0.18);
+      horizGfx.fillRect(0, i * bandH, W, bandH + 1);
+    }
+    for (let i = 0; i < HZ_N; i++) {
+      const bandW = W * 0.15 / HZ_N;
+      const a = Math.pow(1 - i / HZ_N, 2.2) * 0.08;
+      horizGfx.fillStyle(0xb8d8ee, a);
+      horizGfx.fillRect(i * bandW, 0, bandW + 1, H);
+      horizGfx.fillRect(W - (i + 1) * bandW, 0, bandW + 1, H);
+    }
+
+    // ── Wind streaks: thin horizontal wisps drifting across the screen ───────
+    this._windStreakGfx = this.add.graphics().setDepth(4);
+    for (let i = 0; i < 12; i++) {
+      this._windStreaks.push({
+        x:     Math.random() * W,
+        y:     Math.random() * H * 0.85,
+        len:   80 + Math.random() * 220,
+        alpha: 0.04 + Math.random() * 0.08,
+        speed: 6  + Math.random() * 14,
+      });
+    }
+
     this._renderHintLine(W, H, HINT_H);
     this._renderEndCycleButton(W, H);
 
@@ -358,39 +588,111 @@ export class WorldMapScene extends Phaser.Scene {
       this.dragStartY = p.y;
       this.ctnrStartX = this.mapContainer.x;
       this.ctnrStartY = this.mapContainer.y;
+      this._clickedCorridorId = this._hoveredCorridorId;
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       if (!this.mapPointerDown) return;
       const moved = Math.hypot(p.x - this.dragStartX, p.y - this.dragStartY);
       if (moved < 6 && !this.isDragging) return;
       this.isDragging = true;
-      this.mapContainer.x = this.ctnrStartX + (p.x - this.dragStartX);
-      this.mapContainer.y = this.ctnrStartY + (p.y - this.dragStartY);
+      const dx = p.x - this.dragStartX;
+      const dy = p.y - this.dragStartY;
+      this.mapContainer.x = this.ctnrStartX + dx;
+      this.mapContainer.y = this.ctnrStartY + dy;
+      // City sprite lags behind camera — floats free of the ground plane.
+      this._parallaxX = -0.04 * dx / this.currentZoom;
+      this._parallaxY = -0.04 * dy / this.currentZoom;
       this._updateScreenLabelTransforms();
+      // Sync terrain sprites when the camera has panned by at least half a tile.
+      const movePx = Math.hypot(
+        this.mapContainer.x - this._lastTerrainSyncCtrX,
+        this.mapContainer.y - this._lastTerrainSyncCtrY,
+      );
+      if (movePx > TILE_R * this.currentZoom * 0.5) this._syncWorldTerrainSprites();
     });
-    this.input.on('pointerup', () => {
+    this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
       this.mapPointerDown = false;
+      const wasDragging = this.isDragging;
       this.isDragging = false;
+      // Let city parallax ease back naturally — no snap needed.
+      if (!wasDragging) {
+        if (this._clickedCorridorId && this.currentZoom < LABEL_ZOOM) {
+          // Clean click on a corridor — open info card.
+          const corr = this.gsm.windNetwork.corridors.find(c => c.id === this._clickedCorridorId);
+          if (corr) this._openCorridorInfoCard(corr, p.x, p.y);
+        } else if (this._corridorInfoCard) {
+          // Clicked empty space — dismiss open card.
+          this._dismissCorridorInfoCard();
+        }
+      }
+      this._clickedCorridorId = null;
     });
 
     if (this.gsm.missionResult) this._showMissionResult();
   }
 
   private _buildWorldBackground(): void {
-    const gfx = this.add.graphics();
-    this._terrainGfx = gfx;
-    this.mapContainer.add(gfx);
+    // Three separate Graphics for independent alpha control:
+    //   fillGfx — terrain colour fills     (always visible, fades with zoom)
+    //   bevlGfx — per-hex bevel shading    (fades in at close zoom)
+    //   lineGfx — hex grid strokes         (fades out at far zoom)
+    const fillGfx = this.add.graphics();
+    const bevlGfx = this.add.graphics();
+    const lineGfx = this.add.graphics();
+    this._terrainGfx       = fillGfx;
+    this._terrainDetailGfx = bevlGfx;
+    this._terrainLineGfx   = lineGfx;
+    // Insertion order: fill → terrain-art-sprites → bevel → shadow → grid-lines
+    // Fog is inserted on top by _buildFogOverlay; grid lines & bevel stay separate for alpha control.
+    this._terrainSpriteContainer = this.add.container(0, 0);
+    this.mapContainer.add(fillGfx);
+    this.mapContainer.add(this._terrainSpriteContainer);
+    this.mapContainer.add(bevlGfx);
+
+    // Ground shadow — soft dark oval cast by the floating city onto terrain below.
+    const shadowGfx = this.add.graphics();
+    this._shadowGfx = shadowGfx;
+    const { x: scx, y: scy } = tilePx(this.gsm.cityHex.q, this.gsm.cityHex.r);
+    const R = TILE_R, SY = TILE_SY;
+    shadowGfx.fillStyle(0x000000, 0.03); shadowGfx.fillEllipse(scx, scy, R * 12, R * 12 * SY);
+    shadowGfx.fillStyle(0x000000, 0.04); shadowGfx.fillEllipse(scx, scy, R *  9, R *  9 * SY);
+    shadowGfx.fillStyle(0x000000, 0.05); shadowGfx.fillEllipse(scx, scy, R *  6, R *  6 * SY);
+    shadowGfx.fillStyle(0x000000, 0.06); shadowGfx.fillEllipse(scx, scy, R *  4, R *  4 * SY);
+    shadowGfx.fillStyle(0x000000, 0.05); shadowGfx.fillEllipse(scx, scy, R *  2, R *  2 * SY);
+    this.mapContainer.add(shadowGfx);
+
+    this.mapContainer.add(lineGfx);
+
     for (let q = -WORLD_RADIUS; q <= WORLD_RADIUS; q++) {
       for (let r = -WORLD_RADIUS; r <= WORLD_RADIUS; r++) {
         if (Math.abs(-q - r) > WORLD_RADIUS) continue;
         const { x, y } = tilePx(q, r);
-        const pts = tilePts(x, y);
-        gfx.fillStyle(worldTileColor(q, r), 0.80);
-        gfx.fillPoints(pts, true);
-        gfx.lineStyle(1, 0x000000, 0.30);
-        gfx.strokePoints(pts, true);
+        const pts       = tilePts(x, y);
+        const col       = worldTileColor(q, r);
+
+        // ── Terrain fill ────────────────────────────────────────────────
+        fillGfx.fillStyle(col, 0.80);
+        fillGfx.fillPoints(pts, true);
+
+        // ── Bevel: highlight upper-left faces, shadow lower-right faces ──
+        // Flat-top hex vertex angles: v0=0°, v1=60°, v2=120°, v3=180°, v4=240°, v5=300°
+        // Upper-left highlight → triangles: centre–v4–v5, centre–v5–v0
+        // Lower-right shadow   → triangles: centre–v1–v2, centre–v2–v3
+        bevlGfx.fillStyle(lightenColor(col, 45), 0.22);
+        bevlGfx.fillTriangle(x, y, pts[4]!.x, pts[4]!.y, pts[5]!.x, pts[5]!.y);
+        bevlGfx.fillTriangle(x, y, pts[5]!.x, pts[5]!.y, pts[0]!.x, pts[0]!.y);
+        bevlGfx.fillStyle(darkenColor(col, 55), 0.22);
+        bevlGfx.fillTriangle(x, y, pts[1]!.x, pts[1]!.y, pts[2]!.x, pts[2]!.y);
+        bevlGfx.fillTriangle(x, y, pts[2]!.x, pts[2]!.y, pts[3]!.x, pts[3]!.y);
+
+        // ── Grid stroke ─────────────────────────────────────────────────
+        lineGfx.lineStyle(1, 0x000000, 0.30);
+        lineGfx.strokePoints(pts, true);
       }
     }
+    // Start invisible; update() drives them based on zoom level
+    bevlGfx.setAlpha(0);
+    lineGfx.setAlpha(0);
   }
 
   private _drawReachOutline(gfx: Phaser.GameObjects.Graphics, center: AxialCoord): void {
@@ -434,12 +736,12 @@ export class WorldMapScene extends Phaser.Scene {
     }
 
     // Wide soft halo pass
-    gfx.lineStyle(6, 0x4af0ff, 0.20);
+    gfx.lineStyle(3, 0x4af0ff, 0.12);
     for (const [ax, ay, bx, by] of outerEdges) {
       gfx.beginPath(); gfx.moveTo(ax, ay); gfx.lineTo(bx, by); gfx.strokePath();
     }
     // Tight bright core pass
-    gfx.lineStyle(2, 0x4af0ff, 0.90);
+    gfx.lineStyle(1, 0x4af0ff, 0.75);
     for (const [ax, ay, bx, by] of outerEdges) {
       gfx.beginPath(); gfx.moveTo(ax, ay); gfx.lineTo(bx, by); gfx.strokePath();
     }
@@ -453,18 +755,23 @@ export class WorldMapScene extends Phaser.Scene {
     this.screenLabels = [];
     this.labelObjects = [];
     this._gameTileGfxList = [];
+    this._terrainTileSprites = [];
 
     const cityId = hexId(this.gsm.cityHex);
+    const localTiles = this.gsm.hexMap
+      .filter((tile) => hexDistance(tile.coord, this.gsm.cityHex) <= GAME_RADIUS)
+      .map((tile) => {
+        const isCity = tile.id === cityId;
+        const display = SITE_DISPLAY[tile.siteType] ?? SITE_DISPLAY['empty']!;
+        const { x, y } = tilePx(tile.coord.q, tile.coord.r);
+        const pts = tilePts(x, y);
+        const terrColor = worldTileColor(tile.coord.q, tile.coord.r);
+        const terrainVariant = this._resolveTerrainVariant(tile.coord.q, tile.coord.r);
+        return { tile, isCity, display, x, y, pts, terrColor, terrainVariant };
+      });
 
-    for (const tile of this.gsm.hexMap) {
-      if (hexDistance(tile.coord, this.gsm.cityHex) > GAME_RADIUS) continue;
-
-      const isCity   = tile.id === cityId;
-      const display  = SITE_DISPLAY[tile.siteType] ?? SITE_DISPLAY['empty']!;
-      const { x, y } = tilePx(tile.coord.q, tile.coord.r);
-      const pts       = tilePts(x, y);
-
-      const terrColor = worldTileColor(tile.coord.q, tile.coord.r);
+    for (const { tile, isCity, display, x, y, pts, terrColor, terrainVariant } of localTiles) {
+      const hasTerrainArt = terrainVariant !== null;
 
       const tileGfx = this.add.graphics();
       this.gameTileContainer.add(tileGfx);
@@ -472,11 +779,20 @@ export class WorldMapScene extends Phaser.Scene {
 
       const drawTile = (hovered: boolean) => {
         tileGfx.clear();
-        if (isCity) {
+        if (hasTerrainArt) {
+          // At rest the art is the boundary — no outline needed.
+          // On hover: subtle fill tint + thin bright edge.
+          if (hovered) {
+            tileGfx.fillStyle(isCity ? 0xf7c948 : display.color, 0.15);
+            tileGfx.fillPoints(pts, true);
+            tileGfx.lineStyle(1, 0xffffff, 0.70);
+            tileGfx.strokePoints(pts, true);
+          }
+        } else if (isCity) {
           // City hex: normal terrain fill with amber outline (orb drawn separately).
           tileGfx.fillStyle(terrColor, hovered ? 0.90 : 0.75);
           tileGfx.fillPoints(pts, true);
-          tileGfx.lineStyle(hovered ? 2.5 : 1.5, 0xf7c948, hovered ? 1 : 0.70);
+          tileGfx.lineStyle(hovered ? 1.5 : 1, 0xf7c948, hovered ? 0.90 : 0.50);
           tileGfx.strokePoints(pts, true);
         } else {
           tileGfx.fillStyle(terrColor, hovered ? 0.82 : 0.60);
@@ -485,7 +801,7 @@ export class WorldMapScene extends Phaser.Scene {
             tileGfx.fillStyle(display.color, 0.25);
             tileGfx.fillPoints(pts, true);
           }
-          tileGfx.lineStyle(hovered ? 2.5 : 1.5, display.color, hovered ? 1 : 0.70);
+          tileGfx.lineStyle(hovered ? 1.5 : 1, display.color, hovered ? 0.90 : 0.50);
           tileGfx.strokePoints(pts, true);
         }
       };
@@ -545,7 +861,8 @@ export class WorldMapScene extends Phaser.Scene {
       .setDepth(10);
     this.gameTileContainer.add(spr);
     this._citySprite   = spr;
-    this._cityBobBaseY = cy -3;
+    this._cityBobBaseX = cx;
+    this._cityBobBaseY = cy - 3;
     this._updateScreenLabelTransforms();
   }
 
@@ -604,19 +921,27 @@ export class WorldMapScene extends Phaser.Scene {
     // City: sprite fades in with zoom, orb fades out with it.
     if (this._citySprite) this._citySprite.setAlpha(t);
     if (this.cityDot)     this.cityDot.setAlpha(1 - t);
+    // _terrainSpriteContainer alpha is driven every frame by update() — skip individual sprites here.
     for (const lbl of this.screenLabels) {
       lbl.text.setAlpha(t);
     }
-    // Terrain fills fade in; ring stays at full alpha always.
+    for (const spr of this._terrainTileSprites) {
+      spr.setAlpha(t);
+    }
+    // Terrain fills fade in; ring fades out as you zoom in.
     for (const gfx of this._gameTileGfxList) {
       gfx.setAlpha(t);
     }
+    // Ring fades out after tiles are fully interactive — starts at LABEL_ZOOM, gone by zoom ~6.
+    if (this._reachOutlineGfx) {
+      const ringFade = Phaser.Math.Clamp((this.currentZoom - LABEL_ZOOM) / (LABEL_ZOOM * 0.75), 0, 1);
+      this._reachOutlineGfx.setAlpha(1 - ringFade);
+    }
     // Clear corridor hover highlight once we're mostly zoomed in.
     if (show) this._onCorridorOut();
-    // Terrain fades to near-invisible when zoomed far out; particles take over.
-    const zoomT = Phaser.Math.Clamp(
-      (this.currentZoom - MIN_ZOOM) / (INITIAL_ZOOM - MIN_ZOOM), 0, 1);
-    if (this._terrainGfx) this._terrainGfx.setAlpha(0.20 + zoomT * 0.60);
+    // Sync viewport-culled terrain sprites on every zoom change.
+    this._syncWorldTerrainSprites();
+    // Terrain / line / bevel / cloud / haze alphas are all driven in update() each frame.
   }
 
   private _updateScreenLabelTransforms(): void {
@@ -693,6 +1018,11 @@ export class WorldMapScene extends Phaser.Scene {
 
   /** Draw translucent band hexes over a corridor when the player hovers it. */
   private _onCorridorHover(corr: WindCorridor): void {
+    // Dismiss card if hovering a different corridor than the one shown.
+    if (this._corridorInfoCard && this._hoveredCorridorId !== corr.id) {
+      this._dismissCorridorInfoCard();
+    }
+    this._hoveredCorridorId = corr.id;
     if (!this._hoverGfx) {
       this._hoverGfx = this.add.graphics();
       this.mapContainer.add(this._hoverGfx);
@@ -730,8 +1060,156 @@ export class WorldMapScene extends Phaser.Scene {
 
   /** Clear hover highlight and name label when pointer leaves a corridor. */
   private _onCorridorOut(): void {
+    this._hoveredCorridorId = null;
     this._hoverGfx?.clear();
     this._corridorNameLabel?.setVisible(false);
+  }
+
+  // ── Corridor Info Card ───────────────────────────────────────────────────
+
+  /** Deterministic hash of a corridor id → non-negative integer. */
+  private _corridorHash(id: string): number {
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0;
+    return Math.abs(h);
+  }
+
+  /**
+   * Open a themed info card near the given screen position showing
+   * corridor name, derived altitude, wind speed, route length, and lore.
+   */
+  private _openCorridorInfoCard(corr: WindCorridor, screenX: number, screenY: number): void {
+    this._dismissCorridorInfoCard();
+
+    const hash   = this._corridorHash(corr.id);
+    const alt    = 3800 + (hash % 28) * 200;
+    const windKt = corr.speed === 1 ? 8  + (hash >> 3) % 12
+                 : corr.speed === 2 ? 22 + (hash >> 5) % 24
+                                    : 50 + (hash >> 7) % 40;
+    const LORE = [
+      'First charted by Skalder navigators during the Drift Epoch.',
+      'Known to carry trace minerals from volcanic ridges far below.',
+      'Skyborn merchants use this current for the eastern grain runs.',
+      'Unusual layering makes this corridor treacherous in cold season.',
+      'Calm enough that birds have been sighted riding it for days.',
+      'This current has shifted north three times since the Founding.',
+      'Guild markers here date back to the Second Migration.',
+      'Reliable by pilot reckoning — deceptively slow by cartographic measure.',
+      'Sudden gusts at junction points test even seasoned crews.',
+      'Carries the faint smell of salt despite distance from any ocean biome.',
+      'Traditionally used as a boundary marker between highland territories.',
+      'Some navigators report compass drift near its edges — cause unknown.',
+    ];
+    const lore = LORE[(hash >> 2) % LORE.length];
+
+    const CARD_W  = 420;
+    const CARD_H  = 310;
+    const RADIUS  = 12;
+    const PAD     = 18;
+    const W       = this.scale.width;
+    const H       = this.scale.height;
+
+    // Clamp card position so it stays inside viewport with 16px margin.
+    const cx = Phaser.Math.Clamp(screenX + 20, 16, W - CARD_W - 16);
+    const cy = Phaser.Math.Clamp(screenY - 20, 16, H - CARD_H - 16);
+
+    const ct = this.add.container(cx, cy).setDepth(75);
+
+    // ── Background ────────────────────────────────────────────────────────
+    const bg = this.add.graphics();
+    // Outer glow
+    bg.lineStyle(8, corr.color, 0.12);
+    bg.strokeRoundedRect(0, 0, CARD_W, CARD_H, RADIUS);
+    // Fill
+    bg.fillStyle(0x050e1e, 0.95);
+    bg.fillRoundedRect(0, 0, CARD_W, CARD_H, RADIUS);
+    // Border
+    bg.lineStyle(1.5, corr.color, 0.50);
+    bg.strokeRoundedRect(0, 0, CARD_W, CARD_H, RADIUS);
+    ct.add(bg);
+
+    // ── Top color strip ───────────────────────────────────────────────────
+    const strip = this.add.graphics();
+    strip.fillStyle(corr.color, 0.22);
+    strip.fillRoundedRect(0, 0, CARD_W, 46, { tl: RADIUS, tr: RADIUS, bl: 0, br: 0 });
+    ct.add(strip);
+
+    // ── Left accent bar ───────────────────────────────────────────────────
+    const accent = this.add.graphics();
+    accent.fillStyle(corr.color, 0.80);
+    accent.fillRect(0, RADIUS, 4, CARD_H - RADIUS * 2);
+    ct.add(accent);
+
+    // ── Name ─────────────────────────────────────────────────────────────
+    const colorHex = '#' + corr.color.toString(16).padStart(6, '0');
+    const nameText = this.add.text(PAD + 4, 12, corr.name.toUpperCase(), {
+      fontSize: '18px', fontFamily: 'monospace', fontStyle: 'bold', color: colorHex,
+    });
+    ct.add(nameText);
+
+    // ── Close button ──────────────────────────────────────────────────────
+    const closeBtn = this.add.text(CARD_W - PAD, 12, '×', {
+      fontSize: '22px', fontFamily: 'monospace', color: '#6090a0',
+    }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerover',  () => closeBtn.setColor('#a0d0e0'));
+    closeBtn.on('pointerout',   () => closeBtn.setColor('#6090a0'));
+    closeBtn.on('pointerdown',  () => this._dismissCorridorInfoCard());
+    ct.add(closeBtn);
+
+    // ── Divider 1 ─────────────────────────────────────────────────────────
+    const div1 = this.add.graphics();
+    div1.lineStyle(1, corr.color, 0.20);
+    div1.lineBetween(PAD, 52, CARD_W - PAD, 52);
+    ct.add(div1);
+
+    // ── Stats ─────────────────────────────────────────────────────────────
+    const flowLabel = corr.speed === 1 ? 'Light Breeze' : corr.speed === 2 ? 'Steady Wind' : 'Gale Current';
+    const pips = '◆'.repeat(corr.speed) + '◇'.repeat(3 - corr.speed);
+    const stats: Array<[string, string]> = [
+      ['ALTITUDE',     alt.toLocaleString() + ' m'],
+      ['WIND SPEED',   windKt + ' kt'],
+      ['ROUTE LENGTH', corr.spine.length + ' segments'],
+      ['FLOW',         flowLabel + '  ' + pips],
+    ];
+    let sy = 64;
+    for (const [label, value] of stats) {
+      ct.add(this.add.text(PAD + 6, sy, '◈  ' + label, {
+        fontSize: '14px', fontFamily: 'monospace', color: '#4a8aaa',
+      }));
+      ct.add(this.add.text(CARD_W - PAD, sy, value, {
+        fontSize: '15px', fontFamily: 'monospace', color: '#c8dce8',
+      }).setOrigin(1, 0));
+      sy += 28;
+    }
+
+    // ── Divider 2 ─────────────────────────────────────────────────────────
+    const div2 = this.add.graphics();
+    div2.lineStyle(1, corr.color, 0.20);
+    div2.lineBetween(PAD, sy + 2, CARD_W - PAD, sy + 2);
+    ct.add(div2);
+
+    // ── Lore ──────────────────────────────────────────────────────────────
+    ct.add(this.add.text(PAD + 4, sy + 12, '"' + lore + '"', {
+      fontSize: '13px', fontFamily: 'monospace', fontStyle: 'italic',
+      color: '#5a7a8a', wordWrap: { width: CARD_W - PAD * 2 - 8 },
+    }));
+
+    // ── Fade in ───────────────────────────────────────────────────────────
+    ct.setAlpha(0);
+    this.tweens.add({ targets: ct, alpha: 1, duration: 150, ease: 'Linear' });
+
+    this._corridorInfoCard = ct;
+  }
+
+  /** Fade out and destroy the corridor info card. */
+  private _dismissCorridorInfoCard(): void {
+    if (!this._corridorInfoCard) return;
+    const card = this._corridorInfoCard;
+    this._corridorInfoCard = null;
+    this.tweens.add({
+      targets: card, alpha: 0, duration: 100, ease: 'Linear',
+      onComplete: () => card.destroy(),
+    });
   }
 
   /**
@@ -818,9 +1296,86 @@ export class WorldMapScene extends Phaser.Scene {
     const gfx     = this._streamGfx;
     if (!gfx) return;
 
+    // ── Deferred terrain sync: atlas loaded but zoom was too low at that time ────
+    if (this._pendingTerrainSync && this.currentZoom >= TERRAIN_ART_MIN_ZOOM && this._terrainVariantsByType.size > 0) {
+      this._pendingTerrainSync = false;
+      this._lastTerrainSyncZoom = -1;
+      this._syncWorldTerrainSprites();
+    }
+
     // ── Gently bob the city sprite (suppressed during movement tween) ───────────────
+    // Ease city parallax back toward zero — gentle float-back when pan ends.
+    this._parallaxX *= 0.98;
+    this._parallaxY *= 0.98;
     if (this._citySprite && this._citySprite.alpha > 0 && !this._cityMoving) {
-      this._citySprite.y = this._cityBobBaseY + Math.sin(time * 0.0005) * TILE_R * 0.12;
+      this._citySprite.x = this._cityBobBaseX + this._parallaxX;
+      this._citySprite.y = this._cityBobBaseY + Math.sin(time * 0.0005) * TILE_R * 0.12 + this._parallaxY;
+    }
+
+    // ── Zoom-driven visual effect alphas ─────────────────────────────────────
+    // zoomFar:  1 at MIN_ZOOM → 0 at INITIAL_ZOOM  ("strategic / world view")
+    // zoomNear: 0 at INITIAL_ZOOM → 1 at MAX_ZOOM  ("close / aerial view")
+    const zoomFar  = Phaser.Math.Clamp((this.currentZoom - MIN_ZOOM)     / (INITIAL_ZOOM - MIN_ZOOM),  0, 1);
+    const zoomNear = Phaser.Math.Clamp((this.currentZoom - INITIAL_ZOOM) / (MAX_ZOOM - INITIAL_ZOOM),  0, 1);
+    /** Smoothstep: smooth S-curve 0→1 as t moves from lo to hi. */
+    const ss = (t: number, lo: number, hi: number): number => {
+      const x = Phaser.Math.Clamp((t - lo) / (hi - lo), 0, 1);
+      return x * x * (3 - 2 * x);
+    };
+
+    // Terrain fills — present at all zoom levels, brighten toward INITIAL_ZOOM
+    if (this._terrainGfx)       this._terrainGfx.setAlpha(0.20 + zoomFar * 0.60);
+    // Terrain art sprites — fade in as zoom passes TERRAIN_ART_MIN_ZOOM, finish ~1.5× LABEL_ZOOM
+    const artFadeEnd   = LABEL_ZOOM * 1.50;   // fully opaque by zoom ~5.25
+    const artFadeT = Phaser.Math.Clamp(
+      (this.currentZoom - TERRAIN_ART_MIN_ZOOM) / (artFadeEnd - TERRAIN_ART_MIN_ZOOM), 0, 1,
+    );
+    const artAlpha = artFadeT * artFadeT * (3 - 2 * artFadeT); // smoothstep
+    if (this._terrainSpriteContainer) this._terrainSpriteContainer.setAlpha(artAlpha);
+    // Grid lines — fade OUT as we zoom far away AND as terrain art fades in (art takes over)
+    const gridFadeOut = 1 - ss(artFadeT, 0.40, 1.0); // disappears as art fills in
+    if (this._terrainLineGfx)   this._terrainLineGfx.setAlpha(ss(zoomFar, 0.30, 0.85) * gridFadeOut);
+    // Bevel shading — fade IN as we zoom close, but fade OUT again as terrain art covers it
+    const bevelBase = ss(zoomNear, 0.08, 0.45);
+    const bevelArt  = 1 - artAlpha; // fully gone once art is opaque
+    if (this._terrainDetailGfx) this._terrainDetailGfx.setAlpha(bevelBase * bevelArt);
+    // Clouds — only appear close up where individual tiles are large enough to warrant it
+    // zoomNear: 0 at INITIAL_ZOOM(2.0), 1 at MAX_ZOOM(14.0).  0.08 ≈ zoom 3, 0.30 ≈ zoom 5.6
+    if (this._cloudContainer)   this._cloudContainer.setAlpha(ss(zoomNear, 0.08, 0.30));
+    // Drift each cloud puff across the map (mapContainer-local px per ms)
+    for (const cd of this._cloudData) {
+      cd.gfx.x += cd.vx * delta;
+      cd.gfx.y += cd.vy * delta;
+      if (cd.gfx.x >  cd.wrapHalfW) cd.gfx.x -= cd.wrapHalfW * 2;
+      if (cd.gfx.x < -cd.wrapHalfW) cd.gfx.x += cd.wrapHalfW * 2;
+      if (cd.gfx.y >  cd.wrapHalfH) cd.gfx.y -= cd.wrapHalfH * 2;
+      if (cd.gfx.y < -cd.wrapHalfH) cd.gfx.y += cd.wrapHalfH * 2;
+    }
+    // Aerial haze (pale blue tint) and vignette: deepen at close zoom
+    if (this._hazeGfx)     this._hazeGfx.setAlpha(ss(zoomNear, 0.10, 0.55) * 0.10);
+    if (this._vignetteGfx) this._vignetteGfx.setAlpha(ss(zoomNear, 0.04, 0.38) * 0.85);
+    // Wind streaks: drift rightward, wrap at screen edge
+    if (this._windStreakGfx) {
+      const W = this.scale.width;
+      this._windStreakGfx.clear();
+      for (const s of this._windStreaks) {
+        s.x += s.speed * dt;
+        if (s.x > W + s.len) s.x = -s.len;
+        this._windStreakGfx.lineStyle(1, 0xdcecf8, s.alpha);
+        this._windStreakGfx.lineBetween(s.x, s.y, s.x + s.len, s.y);
+      }
+    }
+    // City sprite: grows from the orb as it fades in, then continues to scale with close zoom.
+    if (this._citySprite) {
+      const FADE_START = LABEL_ZOOM * 0.50;
+      const fadeT = Phaser.Math.Clamp((this.currentZoom - FADE_START) / (LABEL_ZOOM - FADE_START), 0, 1);
+      const emergeT = fadeT < 0.5
+        ? 16 * fadeT * fadeT * fadeT * fadeT * fadeT
+        : 1 - Math.pow(-2 * fadeT + 2, 5) / 32;
+      const baseSize = TILE_R * 1.2;
+      // Emerges from 0.4× (dot-sized) to 1.0× while fading in; then grows further at close zoom.
+      const sz = baseSize * (0.4 + 0.6 * emergeT) * (1.0 + 1.2 * zoomNear);
+      this._citySprite.setDisplaySize(sz, sz);
     }
 
     gfx.clear();
@@ -977,6 +1532,234 @@ export class WorldMapScene extends Phaser.Scene {
     });
   }
 
+  private _prepareTerrainAtlases(): void {
+    this._terrainAtlasManifest = this.cache.json.get(TERRAIN_ATLAS_MANIFEST_KEY) as TerrainAtlasManifest | null;
+    if (!this._terrainAtlasManifest?.atlases?.length) {
+      this._terrainVariantsByType.clear();
+      this._lastTerrainSyncZoom = -1;
+      this._syncWorldTerrainSprites();
+      return;
+    }
+
+    const atlasesToLoad = this._terrainAtlasManifest.atlases.filter(
+      (atlas) => !this.textures.exists(this._terrainAtlasTextureKey(atlas.group)),
+    );
+
+    if (atlasesToLoad.length === 0) {
+      this._rebuildTerrainVariantIndex();
+      this._lastTerrainSyncZoom = -1;
+      this._syncWorldTerrainSprites();
+      return;
+    }
+
+    if (this._terrainAtlasesLoading) return;
+    this._terrainAtlasesLoading = true;
+    this.load.once(Phaser.Loader.Events.COMPLETE, () => {
+      this._terrainAtlasesLoading = false;
+      this._rebuildTerrainVariantIndex();
+      this._lastTerrainSyncZoom = -1;
+      // If zoom is already high enough, sync immediately; otherwise defer to update().
+      if (this.currentZoom >= TERRAIN_ART_MIN_ZOOM) {
+        this._syncWorldTerrainSprites();
+      } else {
+        this._pendingTerrainSync = true;
+      }
+      if (this.gameTileContainer) {
+        this._buildGameTiles();
+        this._updateLabelVisibility();
+      }
+    });
+
+    for (const atlas of atlasesToLoad) {
+      this.load.atlas(
+        this._terrainAtlasTextureKey(atlas.group),
+        toPublicAssetPath(atlas.imageRelativePath),
+        toPublicAssetPath(atlas.dataRelativePath),
+      );
+    }
+    this.load.start();
+  }
+
+  private _rebuildTerrainVariantIndex(): void {
+    this._terrainVariantsByType.clear();
+    if (!this._terrainAtlasManifest?.atlases?.length) return;
+
+    for (const atlas of this._terrainAtlasManifest.atlases) {
+      const textureKey = this._terrainAtlasTextureKey(atlas.group);
+      if (!this.textures.exists(textureKey)) continue;
+
+      for (const asset of atlas.assets ?? []) {
+        const frame = this.textures.getFrame(textureKey, asset.frameKey);
+        if (!frame) continue;
+
+        const nextVariant: TerrainAtlasVariant = {
+          textureKey,
+          frameKey: asset.frameKey,
+          terrainType: asset.terrainType,
+          variant: asset.variant,
+          coreHex: asset.coreHex ?? defaultTerrainCoreHex(),
+          frameWidth: frame.width,
+          frameHeight: frame.height,
+        };
+        const existing = this._terrainVariantsByType.get(asset.terrainType) ?? [];
+        existing.push(nextVariant);
+        existing.sort((a, b) => (a.variant - b.variant) || a.frameKey.localeCompare(b.frameKey));
+        this._terrainVariantsByType.set(asset.terrainType, existing);
+      }
+    }
+
+  }
+
+  private _resolveTerrainVariant(q: number, r: number): TerrainAtlasVariant | null {
+    // Bail fast when the index hasn't been built yet.
+    if (this._terrainVariantsByType.size === 0) return null;
+
+    const biome = worldTileBiome(q, r);
+
+    // Water biomes fall back to shallow_sea art until dedicated ocean tiles exist.
+    const isWaterBiome = biome === 'abyssal_trench' || biome === 'deep_ocean' || biome === 'open_ocean';
+    if (isWaterBiome) {
+      const hash = stableHexHash(q, r);
+      const seaVariants = this._terrainVariantsByType.get('shallow_sea');
+      if (seaVariants?.length) return seaVariants[hash % seaVariants.length]!;
+      return null;
+    }
+
+    // Biomes that have no dedicated art fall back to the nearest visual equivalent.
+    const BIOME_FALLBACK: Partial<Record<TerrainBiome, TerrainBiome>> = {
+      dense_rainforest: 'temperate_forest',
+      plains:           'woodland',
+      scrub_steppe:     'savanna',
+      sand_beach:       'savanna',
+    };
+
+    const hash = stableHexHash(q, r);
+
+    // Primary: look up the biome directly.
+    const directVariants = this._terrainVariantsByType.get(biome);
+    if (directVariants?.length) {
+      return directVariants[hash % directVariants.length]!;
+    }
+
+    // Fallback 1: mapped biome alias.
+    const fallbackBiome = BIOME_FALLBACK[biome];
+    if (fallbackBiome) {
+      const fbVariants = this._terrainVariantsByType.get(fallbackBiome);
+      if (fbVariants?.length) {
+        return fbVariants[hash % fbVariants.length]!;
+      }
+    }
+
+    // Fallback 2: any available variant (prevents visual gaps).
+    for (const variants of this._terrainVariantsByType.values()) {
+      if (variants?.length) return variants[hash % variants.length]!;
+    }
+
+    return null;
+  }
+
+  private _terrainAtlasTextureKey(group: string): string {
+    return `${TERRAIN_ATLAS_TEXTURE_PREFIX}${group}`;
+  }
+
+  /**
+   * Returns the range of hex axial coordinates that are currently visible in the camera viewport,
+   * with a 2-hex margin so tiles never pop in at the edge.
+   */
+  private _visibleHexBounds(): { qMin: number; qMax: number; rMin: number; rMax: number } {
+    const W = this.scale.width, H = this.scale.height;
+    const corners = [
+      { sx: 0, sy: 0 }, { sx: W, sy: 0 }, { sx: 0, sy: H }, { sx: W, sy: H },
+    ].map(({ sx, sy }) => ({
+      mx: (sx - this.mapContainer.x) / this.currentZoom,
+      my: (sy - this.mapContainer.y) / this.currentZoom,
+    }));
+    let qMin = Infinity, qMax = -Infinity, rMin = Infinity, rMax = -Infinity;
+    for (const { mx, my } of corners) {
+      const q = mx / (TILE_R * 1.5);
+      const r = my / (TILE_R * SQRT3 * TILE_SY) - q * 0.5;
+      qMin = Math.min(qMin, Math.floor(q) - 2);
+      qMax = Math.max(qMax, Math.ceil(q) + 2);
+      rMin = Math.min(rMin, Math.floor(r) - 2);
+      rMax = Math.max(rMax, Math.ceil(r) + 2);
+    }
+    return {
+      qMin: Math.max(-WORLD_RADIUS, qMin),
+      qMax: Math.min(WORLD_RADIUS, qMax),
+      rMin: Math.max(-WORLD_RADIUS, rMin),
+      rMax: Math.min(WORLD_RADIUS, rMax),
+    };
+  }
+
+  /**
+   * Adds terrain art sprites for hexes newly in-view and destroys those that have scrolled out.
+   * Sprites are placed directly in _terrainSpriteContainer (map-space coords) and share atlas
+   * textures so Phaser WebGL batches them into a single draw call per atlas.
+   * Called on every zoom change and when the camera pans by ≥ half a tile.
+   */
+  private _syncWorldTerrainSprites(): void {
+    if (!this._terrainSpriteContainer) return;
+
+    // Below the art threshold destroy everything — color fills are sufficient.
+    if (this.currentZoom < TERRAIN_ART_MIN_ZOOM || this._terrainVariantsByType.size === 0) {
+      for (const spr of this._worldTerrainSprites.values()) spr.destroy();
+      this._worldTerrainSprites.clear();
+      this._lastTerrainSyncZoom = this.currentZoom;
+      this._lastTerrainSyncCtrX = this.mapContainer.x;
+      this._lastTerrainSyncCtrY = this.mapContainer.y;
+      return;
+    }
+
+    const { qMin, qMax, rMin, rMax } = this._visibleHexBounds();
+    const activeIds = new Set<string>();
+
+    for (let q = qMin; q <= qMax; q++) {
+      for (let r = rMin; r <= rMax; r++) {
+        if (Math.abs(-q - r) > WORLD_RADIUS) continue;
+        const terrainVariant = this._resolveTerrainVariant(q, r);
+        if (!terrainVariant) continue;
+
+        const id = hexId({ q, r });
+        activeIds.add(id);
+
+        if (!this._worldTerrainSprites.has(id)) {
+          const { x, y } = tilePx(q, r);
+          const coreRadiusPx = Math.max(1, terrainVariant.frameWidth * terrainVariant.coreHex.radius);
+          const baseScale = TILE_R / coreRadiusPx;
+          // Per-hex stable pseudo-random decorations to break visual repetition.
+          // Using different bit-windows of the same hash keeps everything deterministic.
+          const hash = stableHexHash(q, r);
+          // Horizontal flip: ~50% of tiles mirrored — doubles apparent variety for free.
+          const flipX = Boolean((hash >>> 8) & 1);
+          // Scale jitter ±5%: breaks up the mechanical hex-grid regularity.
+          const scaleJitter = 1 + (((hash >>> 12) & 0xf) - 7) / 140; // range ≈ [0.95 … 1.05]
+          const scale = baseScale * scaleJitter;
+          // Container render order = insertion order, so we sort after all adds (below).
+          const spr = this.add.image(x, y, terrainVariant.textureKey, terrainVariant.frameKey)
+            .setOrigin(terrainVariant.coreHex.centerX, terrainVariant.coreHex.centerY)
+            .setScale(scale)
+            .setFlipX(flipX);
+          this._terrainSpriteContainer.add(spr);
+          this._worldTerrainSprites.set(id, spr);
+        }
+      }
+    }
+
+    // Destroy sprites that scrolled out of view.
+    for (const [id, spr] of this._worldTerrainSprites.entries()) {
+      if (!activeIds.has(id)) {
+        spr.destroy();
+        this._worldTerrainSprites.delete(id);
+      }
+    }
+
+    this._lastTerrainSyncZoom = this.currentZoom;
+    this._lastTerrainSyncCtrX = this.mapContainer.x;
+    this._lastTerrainSyncCtrY = this.mapContainer.y;
+    // Re-sort by Y so lower tiles (higher screen Y) render on top of tiles behind them.
+    this._terrainSpriteContainer.sort('y');
+  }
+
   /**
    * Animate the city orb and sprite from waypoints[0] through to waypoints[last].
    * The city graphics were already rebuilt at the destination by _onEndCycleTick;
@@ -999,6 +1782,7 @@ export class WorldMapScene extends Phaser.Scene {
     if (this._citySprite) {
       this._citySprite.x = fromPx.x;
       this._citySprite.y = fromPx.y;
+      this._cityBobBaseX  = fromPx.x;
       this._cityBobBaseY  = fromPx.y;
     }
 
@@ -1075,6 +1859,7 @@ export class WorldMapScene extends Phaser.Scene {
         if (this._citySprite) {
           this._citySprite.x = pos.x;
           this._citySprite.y = pos.y;
+          this._cityBobBaseX  = pos.x;
           this._cityBobBaseY  = pos.y;
         }
         // Amber wake contrail — draw each segment from last sampled to current.
@@ -1097,7 +1882,7 @@ export class WorldMapScene extends Phaser.Scene {
           onUpdate: () => this._updateScreenLabelTransforms(),
           onComplete: () => {
             if (this.cityDot)     { this.cityDot.x = 0;           this.cityDot.y = 0; }
-            if (this._citySprite) { this._citySprite.x = toPx.x;  this._cityBobBaseY = toPx.y; }
+            if (this._citySprite) { this._citySprite.x = toPx.x; this._cityBobBaseX = toPx.x; this._cityBobBaseY = toPx.y; }
             this._reachOutlineGfx?.setAlpha(1);
             this._updateLabelVisibility();
             onComplete();
@@ -1424,17 +2209,155 @@ export class WorldMapScene extends Phaser.Scene {
       for (let r = -WORLD_RADIUS; r <= WORLD_RADIUS; r++) {
         if (Math.abs(-q - r) > WORLD_RADIUS) continue;
         const d = hexDistance({ q, r }, { q: cq, r: cr });
-        if (d <= 6) continue;                                    // full brightness near city
-    const alpha = Math.min(0.45, (d - 6) / 32 * 0.45);     // ramp to 45% black at dist 38+
+        if (d <= 10) continue;                                      // inner ring stays clear
+        const alpha = Math.min(0.22, (d - 10) / 28 * 0.22);       // ramp to 22% sky-blue at dist 38+
         const { x, y } = tilePx(q, r);
-        gfx.fillStyle(0x000000, alpha);
+        gfx.fillStyle(0x87b8d4, alpha);
         gfx.fillPoints(tilePts(x, y), true);
       }
     }
 
-    // Always sits at z-index 1 — above terrain (0), below corridor network (2+)
-    this.mapContainer.addAt(gfx, 1);
+    // Insert fog right after the terrain lines layer (fill/bevel/lines trio),
+    // so draw order is: fill → bevel → lines → fog → network+
+    const fogIdx = this._terrainLineGfx
+      ? this.mapContainer.getIndex(this._terrainLineGfx) + 1
+      : 3;
+    this.mapContainer.addAt(gfx, fogIdx);
     this._fogGfx = gfx;
+  }
+
+  /**
+   * Build the animated cloud layer.
+   *
+   * Creates ~26 procedural cloud puffs (overlapping soft white circles) across
+   * the world disk, split into two parallax layers — near (bigger, faster) and
+   * far (smaller, slower).  Each puff drifts slowly in a near-horizontal wind
+   * direction and wraps around the world bounds.
+   *
+   * The container sits in mapContainer between the corridor network and the
+   * gameTileContainer, so clouds appear below the floating city.
+   * Alpha is driven every frame in update() by zoomNear.
+   */
+  private _buildClouds(): void {
+    this._cloudContainer?.destroy();
+    this._cloudContainer = null;
+    this._cloudData = [];
+
+    const container = this.add.container(0, 0);
+    container.setAlpha(0);   // update() drives this
+    this.mapContainer.add(container);
+    this._cloudContainer = container;
+
+    /** Half-extent of the world in mapContainer px for wrap-around logic. */
+    const WORLD_PX = WORLD_RADIUS * TILE_R * 1.5;
+
+    // Near layer: larger, faster-drifting puffs (lower altitude)
+    // Far  layer: smaller, slower puffs (higher altitude / distant)
+    const layers = [
+      { count: 18, baseW: 80, baseH: 22, speedScale: 1.0,  baseAlpha: 0.62 },
+      { count: 16, baseW: 44, baseH: 12, speedScale: 0.42, baseAlpha: 0.44 },
+    ];
+
+    for (const layer of layers) {
+      for (let i = 0; i < layer.count; i++) {
+        // Scatter puff randomly inside the world disk
+        const ang  = Math.random() * Math.PI * 2;
+        const dist = Math.random() * WORLD_PX * 0.88;
+        const bx   = Math.cos(ang) * dist;
+        const by   = Math.sin(ang) * dist;
+
+        // Per-puff width/height variation
+        const wScale = 0.7 + Math.random() * 0.8;
+        const pw     = layer.baseW * wScale;
+        const ph     = layer.baseH * (0.8 + Math.random() * 0.5);
+
+        const puffGfx = this.add.graphics();
+        puffGfx.x = bx;
+        puffGfx.y = by;
+
+        // ── flat shadow underbelly ─────────────────────────────────────────
+        puffGfx.fillStyle(0xd0e4f0, 0.08 * layer.baseAlpha);
+        puffGfx.fillEllipse(0, ph * 0.25, pw * 2.2, ph * 0.8);
+
+        // ── wide flat body ───────────────────────────────────────────────
+        puffGfx.fillStyle(0xffffff, 0.13 * layer.baseAlpha);
+        puffGfx.fillEllipse(0, 0, pw * 2.0, ph * 1.0);
+
+        // ── billowy dome bumps along horizontal spine ────────────────────
+        const numBumps = 3 + Math.floor(Math.random() * 3);
+        for (let b = 0; b < numBumps; b++) {
+          const bx2  = (b / (numBumps - 1) - 0.5) * pw * 1.3;
+          const bw   = pw * (0.30 + Math.random() * 0.35);
+          // Height capped to 55% of the bump width so bumps stay horizontally flat
+          const bh   = Math.min(ph * (0.8 + Math.random() * 0.6), bw * 0.55);
+          const ba   = (0.10 + Math.random() * 0.14) * layer.baseAlpha;
+          puffGfx.fillStyle(0xffffff, ba);
+          puffGfx.fillEllipse(bx2, -ph * 0.2, bw * 2, bh * 2);
+        }
+
+        // ── bright core highlight ──────────────────────────────────────────
+        puffGfx.fillStyle(0xffffff, 0.16 * layer.baseAlpha);
+        puffGfx.fillEllipse(0, -ph * 0.1, pw * 0.9, ph * 0.7);
+
+        container.add(puffGfx);
+
+        // Slow wind drift, mostly horizontal with a small vertical component
+        const windAng = -0.18 + Math.random() * 0.36;
+        const speed   = (0.55 + Math.random() * 0.75) * layer.speedScale; // px/s world-space
+        this._cloudData.push({
+          gfx: puffGfx,
+          vx:  Math.cos(windAng) * speed / 1000,  // px/ms
+          vy:  Math.sin(windAng) * speed / 1000,
+          wrapHalfW: WORLD_PX * 0.97,
+          wrapHalfH: WORLD_PX * 0.97,
+        });
+      }
+    }
+  }
+
+  /**
+   * Build the scene-level aerial haze and vignette overlays.
+   *
+   * These are NOT inside mapContainer, so they scale with the viewport (not the map).
+   * - hazeGfx:     pale blue-white fill that tints the scene at close zoom,
+   *                conveying thick atmosphere when looking straight down.
+   * - vignetteGfx: dark edge-banding that creates a lens/porthole depth effect.
+   *
+   * Both start at alpha 0 and are driven in update() by zoomNear.
+   */
+  private _buildHaze(W: number, H: number): void {
+    // ── Haze (pale blue-white atmosphere tint) ───────────────────────────────
+    const hazeGfx = this.add.graphics();
+    hazeGfx.fillStyle(0xb0cce0, 1.0);
+    hazeGfx.fillRect(0, 0, W, H);
+    hazeGfx.setAlpha(0);
+    hazeGfx.setDepth(3);
+    this._hazeGfx = hazeGfx;
+
+    // ── Vignette (atmospheric edge darkening) ────────────────────────────────
+    // Simulate looking through a vast column of air out to the world below.
+    // Horizontal and vertical gradient bands accumulate at the four edges.
+    const vigGfx = this.add.graphics();
+    const N      = 24;
+    // Horizontal bands (top/bottom darkening)
+    for (let i = 0; i < N; i++) {
+      const tFrac = i / N;
+      const edgeT = Math.abs(tFrac - 0.5) * 2;           // 0 at centre, 1 at top/bottom
+      const a     = Math.pow(edgeT, 2.5) * 0.22 / N * 4;
+      vigGfx.fillStyle(0x000814, a);
+      vigGfx.fillRect(0, tFrac * H, W, H / N + 1);
+    }
+    // Vertical bands (left/right darkening, slightly weaker)
+    for (let i = 0; i < N; i++) {
+      const tFrac = i / N;
+      const edgeT = Math.abs(tFrac - 0.5) * 2;
+      const a     = Math.pow(edgeT, 2.5) * 0.14 / N * 4;
+      vigGfx.fillStyle(0x000814, a);
+      vigGfx.fillRect(tFrac * W, 0, W / N + 1, H);
+    }
+    vigGfx.setAlpha(0);
+    vigGfx.setDepth(3);
+    this._vignetteGfx = vigGfx;
   }
 
   private _renderHintLine(W: number, H: number, hintH: number): void {

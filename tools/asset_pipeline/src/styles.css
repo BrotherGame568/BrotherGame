@@ -628,6 +628,19 @@ button {
   gap: 16px;
 }
 
+.terrain-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.terrain-preview-canvas {
+  min-height: 620px;
+}
+
+.terrain-normalized-preview-canvas {
+  min-height: 320px;
+}
+
 .legend-item {
   display: inline-flex;
   align-items: center;

@@ -4,8 +4,34 @@
 
 | ID | Description | Path | Size | Format | Status |
 |---|---|---|---|---|---|
+| `city_close_view_basic` | backgrounds asset | `backgrounds/city_close_view_basic.webp` | 2752×1536 | webp | generated |
+| `cityzoom` | sprites asset | `sprites/cityzoom.webp` | 409×487 | webp | generated |
 | `hero1_walk_cycle` | Generated from video (walk) | `animations/hero1_walk_cycle.webp` | 6×6 cells, 160×90 display | webp spritesheet | generated |
 | `hero1attack` | Generated from video (walk) | `animations/hero1attack.webp` | 6×6 cells, 249×140 display | webp spritesheet | generated |
 | `hound_walk_cycle` | walk animation sheet | `animations/hound_walk_cycle.webp` | 6×6 cells, 195×110 display | webp spritesheet | generated |
 | `rootwalker_walk_cycle` | walk animation sheet | `animations/rootwalker_walk_cycle.webp` | 6×6 cells, 180×180 display | webp spritesheet | generated |
 | `spiderwalkcycle` | Generated from video (walk) | `animations/spiderwalkcycle.webp` | 6×6 cells, 90×51 display | webp spritesheet | generated |
+| `terrain_alpine_01` | alpine terrain tile v01 | `terrain_tiles/terrain_alpine_01.webp` | 384×384 | webp | generated |
+| `terrain_alpine_02` | alpine terrain tile v02 | `terrain_tiles/terrain_alpine_02.webp` | 384×384 | webp | generated |
+| `terrain_alpine_03` | alpine terrain tile v03 | `terrain_tiles/terrain_alpine_03.webp` | 384×384 | webp | generated |
+| `terrain_alpine_04` | alpine terrain tile v04 | `terrain_tiles/terrain_alpine_04.webp` | 384×384 | webp | generated |
+| `terrain_alpine_05` | alpine terrain tile v05 | `terrain_tiles/terrain_alpine_05.webp` | 384×384 | webp | generated |
+| `terrain_alpine_06` | alpine terrain tile v06 | `terrain_tiles/terrain_alpine_06.webp` | 384×384 | webp | generated |
+| `terrain_bare_rock_01` | bare rock terrain tile v01 | `terrain_tiles/terrain_bare_rock_01.webp` | 384×384 | webp | generated |
+| `terrain_desert_dunes_01` | desert dunes terrain tile v01 | `terrain_tiles/terrain_desert_dunes_01.webp` | 384×384 | webp | generated |
+| `terrain_mangrove_01` | mangrove terrain tile v01 | `terrain_tiles/terrain_mangrove_01.webp` | 384×384 | webp | generated |
+| `terrain_mangrove_02` | mangrove terrain tile v02 | `terrain_tiles/terrain_mangrove_02.webp` | 384×384 | webp | generated |
+| `terrain_savanna_01` | savanna terrain tile v01 | `terrain_tiles/terrain_savanna_01.webp` | 384×384 | webp | generated |
+| `terrain_shallow_sea_01` | shallow sea terrain tile v01 | `terrain_tiles/terrain_shallow_sea_01.webp` | 384×384 | webp | generated |
+| `terrain_shallow_sea_02` | shallow sea terrain tile v02 | `terrain_tiles/terrain_shallow_sea_02.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_01` | snow peaks terrain tile v01 | `terrain_tiles/terrain_snow_peaks_01.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_02` | snow peaks terrain tile v02 | `terrain_tiles/terrain_snow_peaks_02.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_03` | snow peaks terrain tile v03 | `terrain_tiles/terrain_snow_peaks_03.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_04` | snow peaks terrain tile v04 | `terrain_tiles/terrain_snow_peaks_04.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_05` | snow peaks terrain tile v05 | `terrain_tiles/terrain_snow_peaks_05.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_06` | snow peaks terrain tile v06 | `terrain_tiles/terrain_snow_peaks_06.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_07` | snow peaks terrain tile v07 | `terrain_tiles/terrain_snow_peaks_07.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_08` | snow peaks terrain tile v08 | `terrain_tiles/terrain_snow_peaks_08.webp` | 384×384 | webp | generated |
+| `terrain_temperate_forest_01` | temperate forest terrain tile v01 | `terrain_tiles/terrain_temperate_forest_01.webp` | 384×384 | webp | generated |
+| `terrain_woodland_01` | woodland terrain tile v01 | `terrain_tiles/terrain_woodland_01.webp` | 384×384 | webp | generated |
+| `terrain_woodland_02` | woodland terrain tile v02 | `terrain_tiles/terrain_woodland_02.webp` | 384×384 | webp | generated |

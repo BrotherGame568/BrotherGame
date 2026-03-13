@@ -1,0 +1,35 @@
+{
+  "id": "cityzoom",
+  "name": "CityZoom",
+  "status": "active",
+  "category": "sprites",
+  "mode": "image",
+  "outputFormat": "webp",
+  "maintainAspectRatio": true,
+  "resizeFit": "contain",
+  "outputRelativePath": "game/assets/sprites/cityzoom.webp",
+  "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\sprites\\cityzoom.webp",
+  "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\cityzoom.asset.json",
+  "metadataRelativePath": "game/assets/_meta/cityzoom.asset.json",
+  "exportSize": {
+    "width": 409,
+    "height": 487
+  },
+  "displaySize": {
+    "width": 160,
+    "height": 191
+  },
+  "optimization": {
+    "enabled": true,
+    "backgroundRemovalRequested": false,
+    "notes": []
+  },
+  "source": {
+    "kind": "image",
+    "name": "CityZoom.png",
+    "mimeType": "image/png",
+    "sizeBytes": 304877
+  },
+  "generatedAt": "2026-03-09T05:38:46.873Z",
+  "notes": ""
+}

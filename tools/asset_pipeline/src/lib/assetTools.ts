@@ -7,6 +7,8 @@ const CATEGORY_PATHS: Record<AssetCategory, string> = {
   animations: 'game/assets/animations',
 };
 
+const TERRAIN_OUTPUT_PATH = 'game/assets/terrain_tiles';
+
 export function createDefaultDraft(): AssetDraft {
   return {
     assetId: 'new_asset',
@@ -33,6 +35,18 @@ export function createDefaultDraft(): AssetDraft {
     trimStartSeconds: 0,
     trimEndSeconds: 0,
     videoSampling: 'spread',
+    terrainType: '',
+    terrainVariant: 1,
+    terrainAutoNaming: false,
+    terrainAtlasGroup: 'hex_tileset',
+    terrainGenerateAtlas: false,
+    terrainHexOverlay: {
+      centerX: 0.5,
+      centerY: 0.62,
+      radius: 0.28,
+      squashY: 0.72,
+      topOverflow: 0.22,
+    },
   };
 }
 
@@ -51,6 +65,10 @@ export function inferCategoryFromMode(mode: AssetDraft['mode']): AssetCategory {
 
 export function getCategoryOutputPath(category: AssetCategory): string {
   return CATEGORY_PATHS[category];
+}
+
+export function getDraftOutputPath(draft: Pick<AssetDraft, 'category' | 'terrainType'>): string {
+  return draft.terrainType ? TERRAIN_OUTPUT_PATH : getCategoryOutputPath(draft.category);
 }
 
 export function buildAssetMetadata(draft: AssetDraft, source: SourceInfo | null): AssetMetadataDocument {
@@ -89,6 +107,13 @@ export function buildAssetMetadata(draft: AssetDraft, source: SourceInfo | null)
       requestedFrameRate: draft.frameRate,
       sampling: draft.videoSampling,
     },
+    terrainTile: draft.terrainType ? {
+      terrainType: draft.terrainType,
+      variant: draft.terrainVariant,
+      atlasGroup: draft.terrainAtlasGroup,
+      generateAtlas: draft.terrainGenerateAtlas,
+      coreHex: draft.terrainHexOverlay,
+    } : undefined,
     source,
     generatedAt: new Date().toISOString(),
     notes: draft.notes,
@@ -100,13 +125,15 @@ export function buildManifestRow(draft: AssetDraft): string {
   const sizeLabel = draft.mode === 'image'
     ? `${draft.exportWidth}×${draft.exportHeight}`
     : `${draft.columns}×${draft.rows} cells, ${draft.displayWidth}×${draft.displayHeight} display`;
-  const description = draft.mode === 'video'
+  const description = draft.terrainType
+    ? `${draft.terrainType.replace(/_/g, ' ')} terrain tile v${String(draft.terrainVariant).padStart(2, '0')}`
+    : draft.mode === 'video'
     ? `Generated from video (${draft.animationType})`
     : draft.mode === 'spritesheet'
       ? `${draft.animationType} animation sheet`
       : `${draft.category} asset`;
 
-  return `| \`${draft.assetId}\` | ${description} | \`${getCategoryOutputPath(draft.category).replace('game/assets/', '')}/${draft.assetId}.${draft.outputFormat}\` | ${sizeLabel} | ${formatLabel} | wip |`;
+  return `| \`${draft.assetId}\` | ${description} | \`${getDraftOutputPath(draft).replace('game/assets/', '')}/${draft.assetId}.${draft.outputFormat}\` | ${sizeLabel} | ${formatLabel} | wip |`;
 }
 
 export function downloadTextFile(filename: string, content: string): void {
@@ -198,5 +225,11 @@ export function buildDraftFromPersistedAsset(asset: PersistedAssetRecord): Asset
     trimStartSeconds: asset.video?.trimStartSeconds ?? 0,
     trimEndSeconds: asset.video?.trimEndSeconds ?? 0,
     videoSampling: asset.video?.sampling ?? 'spread',
+    terrainType: asset.terrainTile?.terrainType ?? '',
+    terrainVariant: asset.terrainTile?.variant ?? defaultDraft.terrainVariant,
+    terrainAutoNaming: false,
+    terrainAtlasGroup: asset.terrainTile?.atlasGroup ?? defaultDraft.terrainAtlasGroup,
+    terrainGenerateAtlas: asset.terrainTile?.generateAtlas ?? defaultDraft.terrainGenerateAtlas,
+    terrainHexOverlay: asset.terrainTile?.coreHex ?? defaultDraft.terrainHexOverlay,
   };
 }

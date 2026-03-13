@@ -10,6 +10,7 @@ import {
   Download,
   Film,
   FilePenLine,
+  Hexagon,
   ImagePlus,
   Plus,
   RefreshCw,
@@ -18,7 +19,7 @@ import {
   Trash2,
   WandSparkles,
 } from 'lucide-react';
-import type { AssetCategory, AssetDraft, AnimationType, OutputFormat, PersistedAssetRecord, ResizeFitMode, SourceInfo, VideoSamplingMode } from './types';
+import type { AssetCategory, AssetDraft, AnimationType, OutputFormat, PersistedAssetRecord, ResizeFitMode, SourceInfo, TerrainType, VideoSamplingMode } from './types';
 import {
   buildAssetMetadata,
   buildDraftFromPersistedAsset,
@@ -28,7 +29,7 @@ import {
   downloadBlob,
   downloadTextFile,
   exportRasterBlob,
-  getCategoryOutputPath,
+  getDraftOutputPath,
   inferCategoryFromMode,
   sanitizeAssetId,
 } from './lib/assetTools';
@@ -48,6 +49,30 @@ const OUTPUT_FORMATS: OutputFormat[] = ['webp', 'png', 'jpg', 'avif'];
 const ANIMATION_TYPES: AnimationType[] = ['idle', 'walk', 'run', 'jump', 'attack', 'hurt', 'death', 'custom'];
 const RESIZE_FIT_OPTIONS: ResizeFitMode[] = ['contain', 'cover', 'fill'];
 const VIDEO_SAMPLING_OPTIONS: VideoSamplingMode[] = ['spread', 'sequential'];
+const TARGET_TERRAIN_HEX_SQUASH = 0.55;
+const TARGET_TERRAIN_CORE_WIDTH = 256;
+const TARGET_TERRAIN_OUTPUT_WIDTH = 384;
+const TARGET_TERRAIN_OUTPUT_HEIGHT = 384;
+const TARGET_TERRAIN_CENTER_X = 0.5;
+const TARGET_TERRAIN_CENTER_Y = 0.55;
+const TERRAIN_TYPE_OPTIONS: TerrainType[] = [
+  'abyssal_trench',
+  'deep_ocean',
+  'open_ocean',
+  'shallow_sea',
+  'mangrove',
+  'sand_beach',
+  'snow_peaks',
+  'bare_rock',
+  'alpine',
+  'dense_rainforest',
+  'temperate_forest',
+  'woodland',
+  'plains',
+  'savanna',
+  'scrub_steppe',
+  'desert_dunes',
+];
 
 export default function App() {
   const [draft, setDraft] = useState<AssetDraft>(createDefaultDraft);
@@ -59,7 +84,7 @@ export default function App() {
   const [isPreparingVideoPreview, setIsPreparingVideoPreview] = useState(false);
   const [status, setStatus] = useState<string>('Load an image or video to begin.');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
-  const [appView, setAppView] = useState<'library' | 'editor'>('library');
+  const [appView, setAppView] = useState<'library' | 'editor' | 'terrain'>('library');
   const [catalogAssets, setCatalogAssets] = useState<PersistedAssetRecord[]>([]);
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -74,10 +99,12 @@ export default function App() {
   const [openSections, setOpenSections] = useState({
     import: true,
     metadata: false,
+    terrain: false,
     sizing: false,
     animation: false,
     video: false,
   });
+  const isTerrainView = appView === 'terrain';
   const hasSelectedSource = selectedFile !== null;
   const canExportRaster = hasSelectedSource && draft.mode !== 'video';
   const canProcessToWorkspace = hasSelectedSource && (draft.mode !== 'video' || ffmpegAvailable);
@@ -156,8 +183,8 @@ export default function App() {
           return pendingLoadedDraft;
         }
 
-        const nextMode = info.kind === 'video' ? 'video' : current.mode;
-        const inferredCategory = info.kind === 'video' ? 'animations' : inferCategoryFromMode(nextMode);
+        const nextMode = isTerrainView ? 'image' : info.kind === 'video' ? 'video' : current.mode;
+        const inferredCategory = isTerrainView ? 'sprites' : info.kind === 'video' ? 'animations' : inferCategoryFromMode(nextMode);
         const modeSizing = getSuggestedSizingForMode(nextMode, info, current.columns, current.rows);
         const displayWidth = current.displayWidth > 0 ? current.displayWidth : Math.min(modeSizing.exportWidth, 220);
         const aspect = modeSizing.exportWidth > 0 ? modeSizing.exportHeight / modeSizing.exportWidth : 1;
@@ -169,12 +196,18 @@ export default function App() {
 
         return {
           ...current,
-          assetId: current.assetId === 'new_asset' || current.assetId === sanitizeAssetId(baseName)
+          assetId: isTerrainView
+            ? current.assetId
+            : current.assetId === 'new_asset' || current.assetId === sanitizeAssetId(baseName)
             ? sanitizeAssetId(baseName)
             : current.assetId,
-          displayName: current.displayName === 'New Asset' ? humanizeName(baseName) : current.displayName,
+          displayName: isTerrainView
+            ? current.displayName
+            : current.displayName === 'New Asset' ? humanizeName(baseName) : current.displayName,
           mode: nextMode,
-          category: current.category === 'sprites' || current.category === 'animations' ? inferredCategory : current.category,
+          category: isTerrainView
+            ? 'sprites'
+            : current.category === 'sprites' || current.category === 'animations' ? inferredCategory : current.category,
           exportWidth: modeSizing.exportWidth,
           exportHeight: modeSizing.exportHeight,
           displayWidth,
@@ -234,7 +267,7 @@ export default function App() {
       revoked = true;
       URL.revokeObjectURL(url);
     };
-  }, [selectedFile]);
+  }, [isTerrainView, selectedFile]);
 
   useEffect(() => {
     let cancelled = false;
@@ -331,6 +364,29 @@ export default function App() {
   );
 
   useEffect(() => {
+    if (!isTerrainView || currentAssetId || !draft.terrainAutoNaming || !draft.terrainType) {
+      return;
+    }
+
+    const nextVariant = getNextTerrainVariant(catalogAssets, draft.terrainType);
+    const nextAssetId = buildTerrainAssetId(draft.terrainType, nextVariant);
+    const nextDisplayName = `${humanizeTerrainType(draft.terrainType)} ${String(nextVariant).padStart(2, '0')}`;
+
+    if (draft.assetId === nextAssetId && draft.displayName === nextDisplayName && draft.terrainVariant === nextVariant) {
+      return;
+    }
+
+    setDraft((current) => ({
+      ...current,
+      assetId: nextAssetId,
+      displayName: nextDisplayName,
+      terrainVariant: nextVariant,
+      category: 'sprites',
+      mode: 'image',
+    }));
+  }, [catalogAssets, currentAssetId, draft.assetId, draft.displayName, draft.terrainAutoNaming, draft.terrainType, draft.terrainVariant, isTerrainView]);
+
+  useEffect(() => {
     if (filteredCatalogAssets.length === 0) {
       setLibrarySelectedAssetId(null);
       return;
@@ -342,16 +398,51 @@ export default function App() {
     }
   }, [filteredCatalogAssets, librarySelectedAssetId]);
   const outputPath = useMemo(
-    () => `${getCategoryOutputPath(draft.category)}/${draft.assetId}.${draft.outputFormat}`,
-    [draft.category, draft.assetId, draft.outputFormat],
+    () => `${getDraftOutputPath(draft)}/${draft.assetId}.${draft.outputFormat}`,
+    [draft, draft.assetId, draft.outputFormat],
   );
   const currentAspectRatio = useMemo(() => getAssetAspectRatio(draft, sourceInfo), [draft, sourceInfo]);
-  const workflowSteps = [
-    { label: 'Import source', description: hasSelectedSource ? selectedFile?.name ?? 'Loaded' : 'Choose an image, spritesheet, or video.', complete: hasSelectedSource },
-    { label: 'Set metadata', description: draft.assetId && draft.displayName ? `${draft.assetId} • ${draft.category}` : 'Name and classify the asset.', complete: hasSelectedSource && draft.assetId.length > 0 },
-    { label: 'Tune preview', description: draft.mode === 'image' ? 'Check sizing and output format.' : 'Check grid, origin, and collision box.', complete: hasSelectedSource },
-    { label: 'Save output', description: backendReady ? 'Process into the workspace or download files.' : 'Start the backend to save directly into the repo.', complete: savedAsset !== null },
-  ] as const;
+
+  useEffect(() => {
+    if (!isTerrainView) {
+      return;
+    }
+
+    const nextExportWidth = TARGET_TERRAIN_OUTPUT_WIDTH;
+    const nextExportHeight = TARGET_TERRAIN_OUTPUT_HEIGHT;
+    const nextDisplayWidth = TARGET_TERRAIN_CORE_WIDTH;
+    const nextDisplayHeight = getTerrainDisplayHeight(nextDisplayWidth);
+
+    if (
+      draft.exportWidth === nextExportWidth
+      && draft.exportHeight === nextExportHeight
+      && draft.displayWidth === nextDisplayWidth
+      && draft.displayHeight === nextDisplayHeight
+    ) {
+      return;
+    }
+
+    setDraft((current) => ({
+      ...current,
+      exportWidth: nextExportWidth,
+      exportHeight: nextExportHeight,
+      displayWidth: nextDisplayWidth,
+      displayHeight: nextDisplayHeight,
+    }));
+  }, [draft.displayHeight, draft.displayWidth, draft.exportHeight, draft.exportWidth, isTerrainView]);
+  const workflowSteps = isTerrainView
+    ? [
+      { label: 'Import tile', description: hasSelectedSource ? selectedFile?.name ?? 'Loaded' : 'Choose a prerendered hex tile image.', complete: hasSelectedSource },
+      { label: 'Assign terrain', description: draft.terrainType ? `${humanizeTerrainType(draft.terrainType)} • ${draft.assetId}` : 'Pick the terrain type and generate naming.', complete: hasSelectedSource && draft.terrainType.length > 0 },
+      { label: 'Align core hex', description: 'Drag the outline to match the playable hex footprint.', complete: hasSelectedSource },
+      { label: 'Save outputs', description: backendReady ? 'Write terrain metadata into the workspace.' : 'Start the backend to save directly into the repo.', complete: savedAsset !== null },
+    ] as const
+    : [
+      { label: 'Import source', description: hasSelectedSource ? selectedFile?.name ?? 'Loaded' : 'Choose an image, spritesheet, or video.', complete: hasSelectedSource },
+      { label: 'Set metadata', description: draft.assetId && draft.displayName ? `${draft.assetId} • ${draft.category}` : 'Name and classify the asset.', complete: hasSelectedSource && draft.assetId.length > 0 },
+      { label: 'Tune preview', description: draft.mode === 'image' ? 'Check sizing and output format.' : 'Check grid, origin, and collision box.', complete: hasSelectedSource },
+      { label: 'Save output', description: backendReady ? 'Process into the workspace or download files.' : 'Start the backend to save directly into the repo.', complete: savedAsset !== null },
+    ] as const;
 
   function handleSizedValueChange(target: 'export' | 'display', dimension: 'width' | 'height', value: number): void {
     const nextValue = Math.max(1, Math.round(value));
@@ -468,6 +559,15 @@ export default function App() {
       return;
     }
 
+    if (isTerrainView) {
+      setDraft((current) => ({
+        ...current,
+        mode: 'image',
+        category: 'sprites',
+      }));
+      return;
+    }
+
     if (file.type.startsWith('video/')) {
       setDraft((current) => ({
         ...current,
@@ -488,7 +588,7 @@ export default function App() {
       pendingLoadedDraftRef.current = buildDraftFromPersistedAsset(asset);
       setCurrentAssetId(asset.id);
       setSelectedFile(file);
-      setAppView('editor');
+      setAppView(asset.terrainTile ? 'terrain' : 'editor');
       setStatus(
         asset.mode === 'video'
           ? `Loaded ${asset.id} from its generated spritesheet output. Original video clips are not stored.`
@@ -512,6 +612,21 @@ export default function App() {
     setCurrentAssetId(null);
     setSaveState('idle');
     setStatus('Ready to create a new asset.');
+  }
+
+  function handleStartNewTerrain(): void {
+    setAppView('terrain');
+    setDraft(createTerrainDraft());
+    setSelectedFile(null);
+    setSourceInfo(null);
+    setPreviewImage(null);
+    setVideoPreviewSheet(null);
+    setVideoPreviewInfo(null);
+    setSavedAsset(null);
+    setCurrentAssetId(null);
+    setSaveState('idle');
+    setOpenSections({ import: true, metadata: true, terrain: true, sizing: true, animation: false, video: false });
+    setStatus('Ready to import a prerendered terrain tile.');
   }
 
   function handleShowLibrary(): void {
@@ -581,8 +696,9 @@ export default function App() {
           <p className="eyebrow">BrotherGame tooling</p>
           <h1>Asset Manager</h1>
           <p className="hero-copy">
-            Import art, keep metadata organized, preview grounding and hitboxes, and save optimized assets directly
-            into the game workspace.
+            {isTerrainView
+              ? 'Import prerendered hex terrain tiles, assign them to terrain types, and align a normalized core hex before saving.'
+              : 'Import art, keep metadata organized, preview grounding and hitboxes, and save optimized assets directly into the game workspace.'}
           </p>
         </div>
         <div className="hero-actions">
@@ -597,6 +713,10 @@ export default function App() {
               <button type="button" className="primary-button" onClick={handleStartNewAsset}>
                 <Plus size={16} />
                 Add new asset
+              </button>
+              <button type="button" className="secondary-button" onClick={handleStartNewTerrain}>
+                <Hexagon size={16} />
+                Terrain tile import
               </button>
             </>
           ) : (
@@ -744,18 +864,18 @@ export default function App() {
           <CollapsibleSection
             icon={<ImagePlus size={18} />}
             title="1. Import"
-            subtitle="Load a source image or video."
+            subtitle={isTerrainView ? 'Load a prerendered hex terrain image.' : 'Load a source image or video.'}
             open={openSections.import}
             onToggle={() => setOpenSections((current) => ({ ...current, import: !current.import }))}
           >
             <label className="file-dropzone">
               <input
                 type="file"
-                accept="image/*,video/*"
+                accept={isTerrainView ? 'image/*' : 'image/*,video/*'}
                 onChange={(event) => handleFileSelected(event.target.files?.[0] ?? null)}
               />
-              <span>{selectedFile ? selectedFile.name : 'Choose image or video'}</span>
-              <small>PNG, JPG, WebP, AVIF, MP4, MOV, WebM</small>
+              <span>{selectedFile ? selectedFile.name : isTerrainView ? 'Choose terrain tile image' : 'Choose image or video'}</span>
+              <small>{isTerrainView ? 'PNG, JPG, WebP, AVIF' : 'PNG, JPG, WebP, AVIF, MP4, MOV, WebM'}</small>
             </label>
 
             <div className="panel-tip">
@@ -775,45 +895,63 @@ export default function App() {
 
           <CollapsibleSection
             icon={<Boxes size={18} />}
-            title="2. Asset metadata"
-            subtitle="Name and classify the asset."
+            title={isTerrainView ? '2. Terrain metadata' : '2. Asset metadata'}
+            subtitle={isTerrainView ? 'Name the tile output and choose common processing flags.' : 'Name and classify the asset.'}
             open={openSections.metadata}
             onToggle={() => setOpenSections((current) => ({ ...current, metadata: !current.metadata }))}
             disabled={!hasSelectedSource}
           >
             <div className="field-grid">
-            <TextField label="Asset ID" value={draft.assetId} onChange={(value) => updateDraft(setDraft, 'assetId', sanitizeAssetId(value))} helper="snake_case ID used by runtime loaders" />
-            <TextField label="Display name" value={draft.displayName} onChange={(value) => updateDraft(setDraft, 'displayName', value)} />
-            <SelectField label="Category" value={draft.category} options={CATEGORY_OPTIONS} onChange={(value) => updateDraft(setDraft, 'category', value as AssetCategory)} />
-            <SelectField
-              label="Import mode"
-              value={draft.mode}
-              options={['image', 'spritesheet', 'video']}
-              onChange={(value) => {
-                const mode = value as AssetDraft['mode'];
-                setDraft((current) => {
-                  const sourceSizing = sourceInfo
-                    ? getSuggestedSizingForMode(mode, sourceInfo, current.columns, current.rows)
-                    : null;
-                  const nextExportWidth = sourceSizing?.exportWidth ?? current.exportWidth;
-                  const nextExportHeight = sourceSizing?.exportHeight ?? current.exportHeight;
-                  const displayWidth = current.displayWidth > 0 ? current.displayWidth : Math.min(nextExportWidth, 220);
-                  const aspect = nextExportWidth > 0 ? nextExportHeight / nextExportWidth : 1;
-                  const displayHeight = current.maintainAspectRatio
-                    ? Math.max(1, Math.round(displayWidth * aspect))
-                    : current.displayHeight;
+            {isTerrainView ? (
+              <div className="panel-tip compact-tip full-span">
+                <strong>Generated naming</strong>
+                <p>{draft.assetId} • {draft.displayName}</p>
+              </div>
+            ) : (
+              <>
+                <TextField label="Asset ID" value={draft.assetId} onChange={(value) => updateDraft(setDraft, 'assetId', sanitizeAssetId(value))} helper="snake_case ID used by runtime loaders" />
+                <TextField label="Display name" value={draft.displayName} onChange={(value) => updateDraft(setDraft, 'displayName', value)} />
+              </>
+            )}
+            {!isTerrainView ? (
+              <>
+                <SelectField label="Category" value={draft.category} options={CATEGORY_OPTIONS} onChange={(value) => updateDraft(setDraft, 'category', value as AssetCategory)} />
+                <SelectField
+                  label="Import mode"
+                  value={draft.mode}
+                  options={['image', 'spritesheet', 'video']}
+                  onChange={(value) => {
+                    const mode = value as AssetDraft['mode'];
+                    setDraft((current) => {
+                      const sourceSizing = sourceInfo
+                        ? getSuggestedSizingForMode(mode, sourceInfo, current.columns, current.rows)
+                        : null;
+                      const nextExportWidth = sourceSizing?.exportWidth ?? current.exportWidth;
+                      const nextExportHeight = sourceSizing?.exportHeight ?? current.exportHeight;
+                      const displayWidth = current.displayWidth > 0 ? current.displayWidth : Math.min(nextExportWidth, 220);
+                      const aspect = nextExportWidth > 0 ? nextExportHeight / nextExportWidth : 1;
+                      const displayHeight = current.maintainAspectRatio
+                        ? Math.max(1, Math.round(displayWidth * aspect))
+                        : current.displayHeight;
 
-                  return {
-                    ...current,
-                    mode,
-                    category: mode === 'image' && current.category === 'animations' ? 'sprites' : inferCategoryFromMode(mode),
-                    exportWidth: nextExportWidth,
-                    exportHeight: nextExportHeight,
-                    displayHeight,
-                  };
-                });
-              }}
-            />
+                      return {
+                        ...current,
+                        mode,
+                        category: mode === 'image' && current.category === 'animations' ? 'sprites' : inferCategoryFromMode(mode),
+                        exportWidth: nextExportWidth,
+                        exportHeight: nextExportHeight,
+                        displayHeight,
+                      };
+                    });
+                  }}
+                />
+              </>
+            ) : (
+              <div className="panel-tip compact-tip full-span">
+                <strong>Terrain workflow locks the basics</strong>
+                <p>Terrain imports are stored as single-image sprite assets so the core hex can stay aligned independently from protruding art.</p>
+              </div>
+            )}
             <SelectField label="Output format" value={draft.outputFormat} options={OUTPUT_FORMATS} onChange={(value) => updateDraft(setDraft, 'outputFormat', value as OutputFormat)} />
             <ToggleField label="Optimize for web" checked={draft.enableOptimization} onChange={(checked) => updateDraft(setDraft, 'enableOptimization', checked)} />
             <ToggleField label="Background removal" checked={draft.removeBackground} onChange={(checked) => updateDraft(setDraft, 'removeBackground', checked)} helper="Uses local corner-matte removal when processed by the backend." />
@@ -822,9 +960,56 @@ export default function App() {
             </div>
           </CollapsibleSection>
 
+          {isTerrainView ? (
+            <CollapsibleSection
+              icon={<Hexagon size={18} />}
+              title="3. Terrain tile setup"
+              subtitle="Assign the terrain bucket, auto naming, and core hex metadata."
+              open={openSections.terrain}
+              onToggle={() => setOpenSections((current) => ({ ...current, terrain: !current.terrain }))}
+              disabled={!hasSelectedSource}
+            >
+              <div className="field-grid two-column">
+                <SelectField
+                  label="Terrain type"
+                  value={draft.terrainType || TERRAIN_TYPE_OPTIONS[0] || 'temperate_forest'}
+                  options={TERRAIN_TYPE_OPTIONS}
+                  onChange={(value) => updateDraft(setDraft, 'terrainType', value as TerrainType)}
+                  helper="Uses the same biome buckets as the current procedural world map."
+                />
+                <TextField label="Atlas group" value={draft.terrainAtlasGroup} onChange={(value) => updateDraft(setDraft, 'terrainAtlasGroup', sanitizeAssetId(value))} helper="Grouping key for the future packed tileset pass." />
+                <ToggleField label="Auto-generate ID/name" checked={draft.terrainAutoNaming} onChange={(checked) => updateDraft(setDraft, 'terrainAutoNaming', checked)} helper="Generates terrain_forest_01 style IDs from the catalog." />
+                <ToggleField label="Mark for atlas build" checked={draft.terrainGenerateAtlas} onChange={(checked) => updateDraft(setDraft, 'terrainGenerateAtlas', checked)} helper="Stores atlas intent in the saved terrain metadata." />
+                <NumberField label="Overlay squash" value={draft.terrainHexOverlay.squashY} min={0.35} max={0.95} step={0.01} onChange={(value) => setDraft((current) => ({ ...current, terrainHexOverlay: { ...current.terrainHexOverlay, squashY: clamp(value, 0.35, 0.95) } }))} />
+              </div>
+              <div className="summary-grid">
+                <InfoTile label="Variant" value={String(draft.terrainVariant).padStart(2, '0')} />
+                <InfoTile label="Core hex center" value={`${Math.round(draft.terrainHexOverlay.centerX * 100)}%, ${Math.round(draft.terrainHexOverlay.centerY * 100)}%`} />
+                <InfoTile label="Core hex radius" value={`${Math.round(draft.terrainHexOverlay.radius * 100)}%`} />
+                <InfoTile label="Overlay squash" value={draft.terrainHexOverlay.squashY.toFixed(2)} />
+                <InfoTile label="Top overflow" value={`${Math.round(draft.terrainHexOverlay.topOverflow * 100)}%`} />
+                <InfoTile label="Runtime display" value={`${draft.displayWidth} × ${draft.displayHeight}`} />
+              </div>
+              <div className="terrain-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setDraft((current) => ({ ...current, terrainHexOverlay: createTerrainDraft().terrainHexOverlay }))}
+                >
+                  <RefreshCw size={16} />
+                  Reset hex overlay
+                </button>
+              </div>
+              <div className="panel-tip compact-tip">
+                <strong>Alignment rule</strong>
+                <p>Align the flat-top hex to the core footprint only. Tall art above the tile, like trees, is recorded as overflow rather than changing the footprint.</p>
+              </div>
+            </CollapsibleSection>
+          ) : null}
+
           <CollapsibleSection
             icon={<Sparkles size={18} />}
-            title="3. Sizing"
+            title={isTerrainView ? '4. Sizing' : '3. Sizing'}
             subtitle="Define output pixels and in-game footprint."
             open={openSections.sizing}
             onToggle={() => setOpenSections((current) => ({ ...current, sizing: !current.sizing }))}
@@ -851,10 +1036,10 @@ export default function App() {
             helper={`Default on for sprite imports. Current ratio: 1:${currentAspectRatio.toFixed(3)}`}
             />
             <div className="field-grid two-column">
-              <NumberField label="Export width" value={draft.exportWidth} min={1} onChange={(value) => handleSizedValueChange('export', 'width', value)} />
-              <NumberField label="Export height" value={draft.exportHeight} min={1} onChange={(value) => handleSizedValueChange('export', 'height', value)} />
-              <NumberField label="Display width" value={draft.displayWidth} min={1} onChange={(value) => handleSizedValueChange('display', 'width', value)} />
-              <NumberField label="Display height" value={draft.displayHeight} min={1} onChange={(value) => handleSizedValueChange('display', 'height', value)} />
+              {!isTerrainView ? <NumberField label="Export width" value={draft.exportWidth} min={1} onChange={(value) => handleSizedValueChange('export', 'width', value)} /> : null}
+              {!isTerrainView ? <NumberField label="Export height" value={draft.exportHeight} min={1} onChange={(value) => handleSizedValueChange('export', 'height', value)} /> : null}
+              {!isTerrainView ? <NumberField label="Display width" value={draft.displayWidth} min={1} onChange={(value) => handleSizedValueChange('display', 'width', value)} /> : null}
+              {!isTerrainView ? <NumberField label="Display height" value={draft.displayHeight} min={1} onChange={(value) => handleSizedValueChange('display', 'height', value)} /> : null}
               <SelectField
                 label="Resize fit"
                 value={draft.resizeFit}
@@ -863,6 +1048,17 @@ export default function App() {
                 helper="Contain keeps the full frame, cover fills and crops, fill stretches to fit."
               />
             </div>
+            {isTerrainView ? (
+              <>
+                <div className="summary-grid">
+                  <InfoTile label="Saved tile size" value={`${TARGET_TERRAIN_OUTPUT_WIDTH} × ${TARGET_TERRAIN_OUTPUT_HEIGHT}`} />
+                  <InfoTile label="Core hex width" value={`${TARGET_TERRAIN_CORE_WIDTH}px`} />
+                  <InfoTile label="Runtime display" value={`${draft.displayWidth} × ${draft.displayHeight}`} />
+                  <InfoTile label="Game squash" value={TARGET_TERRAIN_HEX_SQUASH.toFixed(2)} />
+                </div>
+                <p className="helper-text">{`Terrain exports are standardized to a fixed ${TARGET_TERRAIN_OUTPUT_WIDTH} × ${TARGET_TERRAIN_OUTPUT_HEIGHT} raster. The overlay is used to warp each source into the shared game hex shape.`}</p>
+              </>
+            ) : null}
           </CollapsibleSection>
 
           {(draft.mode === 'spritesheet' || draft.mode === 'video') && (
@@ -924,23 +1120,56 @@ export default function App() {
         </section>
 
         <section className="panel preview-panel">
-          <PanelHeader icon={<ScanLine size={18} />} title="Preview" subtitle="Grounded animation, origin, and hitbox visualization." />
+          <PanelHeader icon={<ScanLine size={18} />} title={isTerrainView ? 'Terrain alignment preview' : 'Preview'} subtitle={isTerrainView ? 'Position the core hex over the prerendered terrain tile.' : 'Grounded animation, origin, and hitbox visualization.'} />
           <div className="panel-tip compact-tip">
             <strong>Interactive preview</strong>
-            <p>Drag the green origin handle or move/resize the orange collision box directly in the preview.</p>
+            <p>{isTerrainView ? 'Drag inside the hex to move it, drag the right handle to resize it, drag the purple top vertex to squash the overlay perspective, and drag the red line handle to record art overflow above the core hex.' : 'Drag the green origin handle or move/resize the orange collision box directly in the preview.'}</p>
           </div>
-          <PreviewCanvas
-            draft={draft}
-            previewImage={previewImage}
-            sourceInfo={draft.mode === 'video' ? videoPreviewInfo : sourceInfo}
-            previewSourceOverride={draft.mode === 'video' ? videoPreviewSheet : null}
-            isPreparingVideoPreview={draft.mode === 'video' && isPreparingVideoPreview}
-            onDraftChange={setDraft}
-          />
+          {isTerrainView ? (
+            <TerrainPreviewCanvas
+              draft={draft}
+              previewImage={previewImage}
+              previewSourceOverride={null}
+              onDraftChange={setDraft}
+            />
+          ) : (
+            <PreviewCanvas
+              draft={draft}
+              previewImage={previewImage}
+              sourceInfo={draft.mode === 'video' ? videoPreviewInfo : sourceInfo}
+              previewSourceOverride={draft.mode === 'video' ? videoPreviewSheet : null}
+              isPreparingVideoPreview={draft.mode === 'video' && isPreparingVideoPreview}
+              onDraftChange={setDraft}
+            />
+          )}
+          {isTerrainView ? (
+            <>
+              <div className="panel-tip compact-tip">
+                <strong>Normalized output preview</strong>
+                <p>This shows the fixed-size saved tile after the overlay is corrected to the in-game hex shape.</p>
+              </div>
+              <TerrainNormalizedPreviewCanvas
+                draft={draft}
+                previewImage={previewImage}
+                previewSourceOverride={null}
+              />
+            </>
+          ) : null}
           <div className="preview-legend">
-            <LegendSwatch color="rgba(88, 228, 157, 0.9)" label="Origin point" />
-            <LegendSwatch color="rgba(255, 127, 80, 0.9)" label="Collision box" />
-            <LegendSwatch color="rgba(126, 198, 255, 0.9)" label="Frame bounds" />
+            {isTerrainView ? (
+              <>
+                <LegendSwatch color="rgba(255, 194, 92, 0.95)" label="Core hex outline" />
+                <LegendSwatch color="rgba(100, 235, 195, 0.95)" label="Core anchor" />
+                <LegendSwatch color="rgba(134, 146, 255, 0.95)" label="Perspective squash" />
+                <LegendSwatch color="rgba(255, 126, 126, 0.95)" label="Overflow cap" />
+              </>
+            ) : (
+              <>
+                <LegendSwatch color="rgba(88, 228, 157, 0.9)" label="Origin point" />
+                <LegendSwatch color="rgba(255, 127, 80, 0.9)" label="Collision box" />
+                <LegendSwatch color="rgba(126, 198, 255, 0.9)" label="Frame bounds" />
+              </>
+            )}
           </div>
         </section>
 
@@ -954,10 +1183,10 @@ export default function App() {
           </div>
 
           <div className="summary-grid">
-            <InfoTile label="Category folder" value={getCategoryOutputPath(draft.category)} />
+            <InfoTile label="Output folder" value={getDraftOutputPath(draft)} />
             <InfoTile label="Runtime display" value={`${draft.displayWidth} × ${draft.displayHeight}`} />
             <InfoTile label="Export raster" value={`${draft.exportWidth} × ${draft.exportHeight}`} />
-            <InfoTile label="Animation" value={draft.mode === 'image' ? 'N/A' : `${draft.animationType} @ ${draft.frameRate} fps`} />
+            <InfoTile label={isTerrainView ? 'Terrain type' : 'Animation'} value={isTerrainView ? (draft.terrainType ? humanizeTerrainType(draft.terrainType) : 'Unassigned') : draft.mode === 'image' ? 'N/A' : `${draft.animationType} @ ${draft.frameRate} fps`} />
           </div>
 
           {selectedCatalogAsset ? (
@@ -1013,6 +1242,8 @@ export default function App() {
                 ? 'Import a source file to unlock processing and downloads.'
                 : !backendReady
                   ? 'Start the asset manager with npm run asset-manager:start, then save directly into the repo.'
+                  : isTerrainView && !draft.terrainType
+                    ? 'Assign a terrain type so the generated filename and terrain metadata are ready.'
                   : draft.mode === 'video' && !ffmpegAvailable
                     ? 'FFmpeg is unavailable, so video processing is disabled.'
                     : 'Preview looks good — use Save to workspace.'}
@@ -1061,10 +1292,362 @@ export default function App() {
         <span>
           {backendReady ? 'Backend online.' : 'Backend offline.'}
           {draft.removeBackground ? ' Background removal requested.' : ' Background removal disabled.'}
+          {isTerrainView && draft.terrainType ? ` Terrain type: ${humanizeTerrainType(draft.terrainType)}.` : ''}
         </span>
       </footer>
     </div>
   );
+}
+
+function TerrainPreviewCanvas({
+  draft,
+  previewImage,
+  previewSourceOverride,
+  onDraftChange,
+}: {
+  draft: AssetDraft;
+  previewImage: HTMLImageElement | null;
+  previewSourceOverride: HTMLCanvasElement | null;
+  onDraftChange: Dispatch<SetStateAction<AssetDraft>>;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [previewSource, setPreviewSource] = useState<HTMLImageElement | HTMLCanvasElement | null>(null);
+  const sceneRef = useRef({ drawX: 0, drawY: 0, drawWidth: 1, drawHeight: 1 });
+  const interactionRef = useRef<{
+    mode: 'move' | 'resize' | 'squash' | 'overflow' | null;
+    pointerOffsetX: number;
+    pointerOffsetY: number;
+  }>({ mode: null, pointerOffsetX: 0, pointerOffsetY: 0 });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function preparePreview(): Promise<void> {
+      if (previewSourceOverride) {
+        setPreviewSource(previewSourceOverride);
+        return;
+      }
+
+      if (!previewImage) {
+        setPreviewSource(null);
+        return;
+      }
+
+      if (!draft.removeBackground) {
+        setPreviewSource(previewImage);
+        return;
+      }
+
+      const processed = await createBackgroundRemovedCanvas(previewImage);
+      if (!cancelled) {
+        setPreviewSource(processed);
+      }
+    }
+
+    void preparePreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.removeBackground, previewImage, previewSourceOverride]);
+
+  useEffect(() => {
+    let frameId = 0;
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+
+    const render = (): void => {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const width = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+      const height = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = '#09101d';
+      ctx.fillRect(0, 0, width, height);
+
+      const padding = 28 * dpr;
+      let drawX = padding;
+      let drawY = padding;
+      let drawWidth = width - padding * 2;
+      let drawHeight = height - padding * 2;
+
+      if (previewSource) {
+        const sourceWidth = previewSource instanceof HTMLCanvasElement ? previewSource.width : previewSource.naturalWidth;
+        const sourceHeight = previewSource instanceof HTMLCanvasElement ? previewSource.height : previewSource.naturalHeight;
+        const scale = Math.min((width - padding * 2) / Math.max(1, sourceWidth), (height - padding * 2) / Math.max(1, sourceHeight));
+        drawWidth = Math.max(1, sourceWidth * scale);
+        drawHeight = Math.max(1, sourceHeight * scale);
+        drawX = (width - drawWidth) / 2;
+        drawY = (height - drawHeight) / 2;
+
+        ctx.drawImage(previewSource, drawX, drawY, drawWidth, drawHeight);
+        sceneRef.current = { drawX, drawY, drawWidth, drawHeight };
+
+        const centerX = drawX + draft.terrainHexOverlay.centerX * drawWidth;
+        const centerY = drawY + draft.terrainHexOverlay.centerY * drawHeight;
+        const radius = Math.max(12 * dpr, draft.terrainHexOverlay.radius * drawWidth);
+        const squashY = draft.terrainHexOverlay.squashY;
+        const topOverflow = Math.max(0, draft.terrainHexOverlay.topOverflow * drawHeight);
+        const hexPoints = getFlatTopHexPoints(centerX, centerY, radius, squashY);
+        const hexHalfHeight = Math.sin(Math.PI / 3) * radius * squashY;
+        const overflowY = centerY - hexHalfHeight - topOverflow;
+        const squashHandleY = centerY - hexHalfHeight;
+
+        ctx.fillStyle = 'rgba(255, 194, 92, 0.14)';
+        ctx.beginPath();
+        ctx.moveTo(hexPoints[0]!.x, hexPoints[0]!.y);
+        for (const point of hexPoints.slice(1)) ctx.lineTo(point.x, point.y);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.setLineDash([10 * dpr, 8 * dpr]);
+        ctx.strokeStyle = 'rgba(255, 194, 92, 0.96)';
+        ctx.lineWidth = 2 * dpr;
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.strokeStyle = 'rgba(255, 126, 126, 0.95)';
+        ctx.lineWidth = 2 * dpr;
+        ctx.beginPath();
+        ctx.moveTo(centerX - radius * 0.85, overflowY);
+        ctx.lineTo(centerX + radius * 0.85, overflowY);
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(100, 235, 195, 0.98)';
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, 6 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(255, 194, 92, 0.98)';
+        ctx.beginPath();
+        ctx.arc(centerX + radius, centerY, 6 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(255, 126, 126, 0.98)';
+        ctx.beginPath();
+        ctx.arc(centerX, overflowY, 6 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(134, 146, 255, 0.98)';
+        ctx.beginPath();
+        ctx.arc(centerX, squashHandleY, 6 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = 'rgba(210, 221, 255, 0.72)';
+        ctx.font = `${16 * dpr}px Inter, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText('Import a terrain image to align the core hex.', width / 2, height / 2);
+      }
+
+      frameId = window.requestAnimationFrame(render);
+    };
+
+    frameId = window.requestAnimationFrame(render);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [draft.terrainHexOverlay, previewSource]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+
+    const pointerToCanvas = (event: PointerEvent): { x: number; y: number } => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / Math.max(1, rect.width);
+      const scaleY = canvas.height / Math.max(1, rect.height);
+      return {
+        x: (event.clientX - rect.left) * scaleX,
+        y: (event.clientY - rect.top) * scaleY,
+      };
+    };
+
+    const onPointerDown = (event: PointerEvent): void => {
+      const { drawX, drawY, drawWidth, drawHeight } = sceneRef.current;
+      if (drawWidth <= 1 || drawHeight <= 1) return;
+
+      const point = pointerToCanvas(event);
+      const centerX = drawX + draft.terrainHexOverlay.centerX * drawWidth;
+      const centerY = drawY + draft.terrainHexOverlay.centerY * drawHeight;
+      const radius = Math.max(1, draft.terrainHexOverlay.radius * drawWidth);
+      const squashY = draft.terrainHexOverlay.squashY;
+      const hexHalfHeight = Math.sin(Math.PI / 3) * radius * squashY;
+      const overflowY = centerY - hexHalfHeight - draft.terrainHexOverlay.topOverflow * drawHeight;
+      const squashHandleY = centerY - hexHalfHeight;
+      const movePoints = getFlatTopHexPoints(centerX, centerY, radius, squashY);
+      const hitRadius = 14 * (window.devicePixelRatio || 1);
+
+      if (distance(point.x, point.y, centerX + radius, centerY) <= hitRadius) {
+        interactionRef.current = { mode: 'resize', pointerOffsetX: 0, pointerOffsetY: 0 };
+      } else if (distance(point.x, point.y, centerX, squashHandleY) <= hitRadius) {
+        interactionRef.current = { mode: 'squash', pointerOffsetX: 0, pointerOffsetY: 0 };
+      } else if (distance(point.x, point.y, centerX, overflowY) <= hitRadius) {
+        interactionRef.current = { mode: 'overflow', pointerOffsetX: 0, pointerOffsetY: 0 };
+      } else if (isPointInsidePolygon(point, movePoints)) {
+        interactionRef.current = { mode: 'move', pointerOffsetX: point.x - centerX, pointerOffsetY: point.y - centerY };
+      } else {
+        interactionRef.current = { mode: null, pointerOffsetX: 0, pointerOffsetY: 0 };
+        return;
+      }
+
+      canvas.setPointerCapture(event.pointerId);
+    };
+
+    const onPointerMove = (event: PointerEvent): void => {
+      const { mode, pointerOffsetX, pointerOffsetY } = interactionRef.current;
+      if (!mode) return;
+
+      const { drawX, drawY, drawWidth, drawHeight } = sceneRef.current;
+      const point = pointerToCanvas(event);
+
+      onDraftChange((current) => {
+        const nextOverlay = { ...current.terrainHexOverlay };
+        const centerX = drawX + current.terrainHexOverlay.centerX * drawWidth;
+        const centerY = drawY + current.terrainHexOverlay.centerY * drawHeight;
+        const radius = Math.max(1, current.terrainHexOverlay.radius * drawWidth);
+
+        if (mode === 'move') {
+          nextOverlay.centerX = clamp((point.x - pointerOffsetX - drawX) / Math.max(1, drawWidth), 0.05, 0.95);
+          nextOverlay.centerY = clamp((point.y - pointerOffsetY - drawY) / Math.max(1, drawHeight), 0.05, 0.95);
+        } else if (mode === 'resize') {
+          nextOverlay.radius = clamp((point.x - centerX) / Math.max(1, drawWidth), 0.08, 0.48);
+        } else if (mode === 'squash') {
+          nextOverlay.squashY = clamp((centerY - point.y) / Math.max(1, Math.sin(Math.PI / 3) * radius), 0.35, 0.95);
+        } else if (mode === 'overflow') {
+          const coreTopY = centerY - Math.sin(Math.PI / 3) * radius * current.terrainHexOverlay.squashY;
+          nextOverlay.topOverflow = clamp((coreTopY - point.y) / Math.max(1, drawHeight), 0, 0.5);
+        }
+
+        return { ...current, terrainHexOverlay: nextOverlay };
+      });
+    };
+
+    const endInteraction = (event?: PointerEvent): void => {
+      if (event && canvas.hasPointerCapture(event.pointerId)) {
+        canvas.releasePointerCapture(event.pointerId);
+      }
+      interactionRef.current = { mode: null, pointerOffsetX: 0, pointerOffsetY: 0 };
+    };
+
+    canvas.addEventListener('pointerdown', onPointerDown);
+    canvas.addEventListener('pointermove', onPointerMove);
+    canvas.addEventListener('pointerup', endInteraction);
+    canvas.addEventListener('pointerleave', endInteraction);
+
+    return () => {
+      canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerup', endInteraction);
+      canvas.removeEventListener('pointerleave', endInteraction);
+    };
+  }, [draft.terrainHexOverlay, onDraftChange]);
+
+  return <canvas ref={canvasRef} className="preview-canvas terrain-preview-canvas" />;
+}
+
+function TerrainNormalizedPreviewCanvas({
+  draft,
+  previewImage,
+  previewSourceOverride,
+}: {
+  draft: AssetDraft;
+  previewImage: HTMLImageElement | null;
+  previewSourceOverride: HTMLCanvasElement | null;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [previewSource, setPreviewSource] = useState<HTMLImageElement | HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function preparePreview(): Promise<void> {
+      if (previewSourceOverride) {
+        setPreviewSource(previewSourceOverride);
+        return;
+      }
+
+      if (!previewImage) {
+        setPreviewSource(null);
+        return;
+      }
+
+      if (!draft.removeBackground) {
+        setPreviewSource(previewImage);
+        return;
+      }
+
+      const processed = await createBackgroundRemovedCanvas(previewImage);
+      if (!cancelled) {
+        setPreviewSource(processed);
+      }
+    }
+
+    void preparePreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.removeBackground, previewImage, previewSourceOverride]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const width = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+    const height = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#09101d';
+    ctx.fillRect(0, 0, width, height);
+
+    if (!previewSource) {
+      ctx.fillStyle = 'rgba(210, 221, 255, 0.72)';
+      ctx.font = `${16 * dpr}px Inter, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('Normalized saved tile preview will appear here.', width / 2, height / 2);
+      return;
+    }
+
+    const offscreen = createNormalizedTerrainPreviewCanvas(previewSource, draft);
+    const padding = 28 * dpr;
+    const scale = Math.min((width - padding * 2) / offscreen.width, (height - padding * 2) / offscreen.height);
+    const drawWidth = offscreen.width * scale;
+    const drawHeight = offscreen.height * scale;
+    const drawX = (width - drawWidth) / 2;
+    const drawY = (height - drawHeight) / 2;
+
+    ctx.drawImage(offscreen, drawX, drawY, drawWidth, drawHeight);
+
+    const overlay = getNormalizedTerrainOverlay(draft);
+    const centerX = drawX + overlay.centerX * drawWidth;
+    const centerY = drawY + overlay.centerY * drawHeight;
+    const radius = overlay.radius * drawWidth;
+    const points = getFlatTopHexPoints(centerX, centerY, radius, overlay.squashY);
+    ctx.setLineDash([10 * dpr, 8 * dpr]);
+    ctx.strokeStyle = 'rgba(88, 228, 157, 0.95)';
+    ctx.lineWidth = 2 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(points[0]!.x, points[0]!.y);
+    for (const point of points.slice(1)) ctx.lineTo(point.x, point.y);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }, [draft, previewSource]);
+
+  return <canvas ref={canvasRef} className="preview-canvas terrain-normalized-preview-canvas" />;
 }
 
 function PreviewCanvas({
@@ -1586,6 +2169,185 @@ function updateDraft<K extends keyof AssetDraft>(
   value: AssetDraft[K],
 ): void {
   setDraft((current) => ({ ...current, [key]: value }));
+}
+
+function createTerrainDraft(): AssetDraft {
+  const draft = createDefaultDraft();
+  const displayWidth = 256;
+  return {
+    ...draft,
+    category: 'sprites',
+    mode: 'image',
+    removeBackground: true,
+    cropToBoundingBox: false,
+    exportWidth: displayWidth,
+    displayWidth,
+    displayHeight: getTerrainDisplayHeight(displayWidth),
+    terrainType: 'temperate_forest',
+    terrainVariant: 1,
+    terrainAutoNaming: true,
+    terrainAtlasGroup: 'hex_tileset',
+    terrainGenerateAtlas: true,
+    terrainHexOverlay: {
+      centerX: 0.5,
+      centerY: 0.62,
+      radius: 0.28,
+      squashY: 0.72,
+      topOverflow: 0.22,
+    },
+  };
+}
+
+function getTerrainDisplayHeight(coreWidth: number): number {
+  return Math.max(1, Math.round(coreWidth * (Math.sqrt(3) / 2) * TARGET_TERRAIN_HEX_SQUASH));
+}
+
+function getNormalizedTerrainOverlay(draft: AssetDraft): AssetDraft['terrainHexOverlay'] {
+  return {
+    centerX: TARGET_TERRAIN_CENTER_X,
+    centerY: TARGET_TERRAIN_CENTER_Y,
+    radius: (TARGET_TERRAIN_CORE_WIDTH / 2) / TARGET_TERRAIN_OUTPUT_WIDTH,
+    squashY: TARGET_TERRAIN_HEX_SQUASH,
+    topOverflow: draft.terrainHexOverlay.topOverflow,
+  };
+}
+
+function getNormalizedTerrainPlacement(
+  sourceWidth: number,
+  sourceHeight: number,
+  overlay: AssetDraft['terrainHexOverlay'],
+): {
+  sourceClipX: number;
+  sourceClipY: number;
+  sourceClipWidth: number;
+  sourceClipHeight: number;
+  destX: number;
+  destY: number;
+  destWidth: number;
+  destHeight: number;
+} {
+  const sourceRadius = Math.max(1, overlay.radius * sourceWidth);
+  const sourceCenterX = overlay.centerX * sourceWidth;
+  const sourceCenterY = overlay.centerY * sourceHeight;
+  const targetCenterX = TARGET_TERRAIN_OUTPUT_WIDTH * TARGET_TERRAIN_CENTER_X;
+  const targetCenterY = TARGET_TERRAIN_OUTPUT_HEIGHT * TARGET_TERRAIN_CENTER_Y;
+  const targetRadius = TARGET_TERRAIN_CORE_WIDTH / 2;
+  const scale = targetRadius / sourceRadius;
+  const scaledWidth = Math.max(1, Math.round(sourceWidth * scale));
+  const scaledHeight = Math.max(1, Math.round(sourceHeight * scale));
+  const compositeLeft = Math.round(targetCenterX - sourceCenterX * scale);
+  const compositeTop = Math.round(targetCenterY - sourceCenterY * scale);
+
+  const sourceClipX = Math.max(0, -compositeLeft);
+  const sourceClipY = Math.max(0, -compositeTop);
+  const destX = Math.max(0, compositeLeft);
+  const destY = Math.max(0, compositeTop);
+  const sourceClipWidth = Math.max(0, Math.min(scaledWidth - sourceClipX, TARGET_TERRAIN_OUTPUT_WIDTH - destX));
+  const sourceClipHeight = Math.max(0, Math.min(scaledHeight - sourceClipY, TARGET_TERRAIN_OUTPUT_HEIGHT - destY));
+
+  return {
+    sourceClipX,
+    sourceClipY,
+    sourceClipWidth,
+    sourceClipHeight,
+    destX,
+    destY,
+    destWidth: sourceClipWidth,
+    destHeight: sourceClipHeight,
+  };
+}
+
+function createNormalizedTerrainPreviewCanvas(source: HTMLImageElement | HTMLCanvasElement, draft: AssetDraft): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = TARGET_TERRAIN_OUTPUT_WIDTH;
+  canvas.height = TARGET_TERRAIN_OUTPUT_HEIGHT;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return canvas;
+  }
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const sourceWidth = source instanceof HTMLCanvasElement ? source.width : source.naturalWidth;
+  const sourceHeight = source instanceof HTMLCanvasElement ? source.height : source.naturalHeight;
+  const placement = getNormalizedTerrainPlacement(sourceWidth, sourceHeight, draft.terrainHexOverlay);
+
+  if (placement.sourceClipWidth > 0 && placement.sourceClipHeight > 0) {
+    ctx.drawImage(
+      source,
+      placement.sourceClipX,
+      placement.sourceClipY,
+      placement.sourceClipWidth,
+      placement.sourceClipHeight,
+      placement.destX,
+      placement.destY,
+      placement.destWidth,
+      placement.destHeight,
+    );
+  }
+
+  return canvas;
+}
+
+function humanizeTerrainType(value: TerrainType | ''): string {
+  if (!value) return 'Unassigned';
+  return humanizeName(value);
+}
+
+function buildTerrainAssetId(terrainType: TerrainType, variant: number): string {
+  return sanitizeAssetId(`terrain_${terrainType}_${String(variant).padStart(2, '0')}`);
+}
+
+function getNextTerrainVariant(assets: PersistedAssetRecord[], terrainType: TerrainType): number {
+  let maxVariant = 0;
+  const fallbackPattern = new RegExp(`^terrain_${terrainType}_(\\d+)$`);
+
+  for (const asset of assets) {
+    if (asset.terrainTile?.terrainType === terrainType) {
+      maxVariant = Math.max(maxVariant, asset.terrainTile.variant ?? 0);
+      continue;
+    }
+
+    const match = asset.id.match(fallbackPattern);
+    if (match?.[1]) {
+      maxVariant = Math.max(maxVariant, Number.parseInt(match[1], 10) || 0);
+    }
+  }
+
+  return maxVariant + 1;
+}
+
+function getFlatTopHexPoints(centerX: number, centerY: number, radius: number, squashY = 1): Array<{ x: number; y: number }> {
+  return Array.from({ length: 6 }, (_, index) => {
+    const angle = (Math.PI / 180) * (60 * index);
+    return {
+      x: centerX + Math.cos(angle) * radius,
+      y: centerY + Math.sin(angle) * radius * squashY,
+    };
+  });
+}
+
+function distance(ax: number, ay: number, bx: number, by: number): number {
+  return Math.hypot(ax - bx, ay - by);
+}
+
+function isPointInsidePolygon(point: { x: number; y: number }, polygon: Array<{ x: number; y: number }>): boolean {
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const xi = polygon[i]!.x;
+    const yi = polygon[i]!.y;
+    const xj = polygon[j]!.x;
+    const yj = polygon[j]!.y;
+
+    const intersects = ((yi > point.y) !== (yj > point.y))
+      && (point.x < ((xj - xi) * (point.y - yi)) / Math.max(0.00001, (yj - yi)) + xi);
+
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
 }
 
 function getAssetAspectRatio(draft: AssetDraft, sourceInfo: SourceInfo | null): number {

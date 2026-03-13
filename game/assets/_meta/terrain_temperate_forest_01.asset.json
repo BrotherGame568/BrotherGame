@@ -1,0 +1,54 @@
+{
+  "id": "terrain_temperate_forest_01",
+  "name": "Temperate Forest 01",
+  "status": "active",
+  "category": "sprites",
+  "mode": "image",
+  "outputFormat": "webp",
+  "maintainAspectRatio": true,
+  "resizeFit": "contain",
+  "outputRelativePath": "game/assets/terrain_tiles/terrain_temperate_forest_01.webp",
+  "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\terrain_tiles\\terrain_temperate_forest_01.webp",
+  "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\terrain_temperate_forest_01.asset.json",
+  "metadataRelativePath": "game/assets/_meta/terrain_temperate_forest_01.asset.json",
+  "exportSize": {
+    "width": 384,
+    "height": 384
+  },
+  "displaySize": {
+    "width": 256,
+    "height": 122
+  },
+  "optimization": {
+    "enabled": true,
+    "backgroundRemovalRequested": true,
+    "cropToBoundingBoxRequested": false,
+    "notes": [
+      "Local matte background removal applied using corner-color sampling.",
+      "Terrain tile normalized to a 256px core hex footprint.",
+      "Scaled overflow budget — left 0px, right 23px, top 47px, bottom 45px.",
+      "Overflow clipped to fit 384×384 canvas — left yes, top no, right yes, bottom no."
+    ]
+  },
+  "terrainTile": {
+    "terrainType": "temperate_forest",
+    "variant": 1,
+    "atlasGroup": "hex_tileset",
+    "generateAtlas": true,
+    "coreHex": {
+      "centerX": 0.5,
+      "centerY": 0.55,
+      "radius": 0.3333333333333333,
+      "squashY": 0.55,
+      "topOverflow": 0.12239583333333333
+    }
+  },
+  "source": {
+    "kind": "image",
+    "name": "Gemini_Generated_Image_4pa7404pa7404pa7.png",
+    "mimeType": "image/png",
+    "sizeBytes": 6149617
+  },
+  "generatedAt": "2026-03-11T02:47:54.038Z",
+  "notes": ""
+}
