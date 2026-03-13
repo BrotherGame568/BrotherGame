@@ -24,6 +24,10 @@
 | `terrain_snow_peaks_02` | snow peaks terrain tile v02 | `terrain_tiles/terrain_snow_peaks_02.webp` | 384×384 | webp | generated |
 | `terrain_snow_peaks_03` | snow peaks terrain tile v03 | `terrain_tiles/terrain_snow_peaks_03.webp` | 384×384 | webp | generated |
 | `terrain_snow_peaks_04` | snow peaks terrain tile v04 | `terrain_tiles/terrain_snow_peaks_04.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_05` | snow peaks terrain tile v05 | `terrain_tiles/terrain_snow_peaks_05.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_06` | snow peaks terrain tile v06 | `terrain_tiles/terrain_snow_peaks_06.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_07` | snow peaks terrain tile v07 | `terrain_tiles/terrain_snow_peaks_07.webp` | 384×384 | webp | generated |
+| `terrain_snow_peaks_08` | snow peaks terrain tile v08 | `terrain_tiles/terrain_snow_peaks_08.webp` | 384×384 | webp | generated |
 | `terrain_temperate_forest_01` | temperate forest terrain tile v01 | `terrain_tiles/terrain_temperate_forest_01.webp` | 384×384 | webp | generated |
 | `terrain_woodland_01` | woodland terrain tile v01 | `terrain_tiles/terrain_woodland_01.webp` | 384×384 | webp | generated |
 | `terrain_woodland_02` | woodland terrain tile v02 | `terrain_tiles/terrain_woodland_02.webp` | 384×384 | webp | generated |

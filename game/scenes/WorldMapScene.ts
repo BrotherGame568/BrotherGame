@@ -295,6 +295,11 @@ export class WorldMapScene extends Phaser.Scene {
   private _hazeGfx:     Phaser.GameObjects.Graphics | null = null;
   /** Full-screen lens vignette at scene level. */
   private _vignetteGfx: Phaser.GameObjects.Graphics | null = null;
+  /** Screen-space top/edge horizon haze — sky-blue gradient fading inward. */
+  private _horizonHazeGfx: Phaser.GameObjects.Graphics | null = null;
+  /** Thin horizontal wind wisps drifting across the screen. */
+  private _windStreakGfx: Phaser.GameObjects.Graphics | null = null;
+  private _windStreaks: Array<{ x: number; y: number; len: number; alpha: number; speed: number }> = [];
   /** Soft cast-shadow ellipse beneath the floating city, drawn on terrain. */
   private _shadowGfx:   Phaser.GameObjects.Graphics | null = null;
   /** Permanent outline ring drawn at the edge of the reachable hex area. */
@@ -528,6 +533,37 @@ export class WorldMapScene extends Phaser.Scene {
     });
 
     this._buildHaze(W, H);           // scene-level aerial haze + vignette
+
+    // ── Horizon haze: top-biased sky-blue gradient, always-on ───────────────
+    const horizGfx = this.add.graphics().setDepth(4);
+    this._horizonHazeGfx = horizGfx;
+    const HZ_N = 28;
+    for (let i = 0; i < HZ_N; i++) {
+      const t = i / HZ_N;
+      const bandH = H * 0.35 / HZ_N;
+      horizGfx.fillStyle(0xb8d8ee, Math.pow(1 - t, 2.2) * 0.18);
+      horizGfx.fillRect(0, i * bandH, W, bandH + 1);
+    }
+    for (let i = 0; i < HZ_N; i++) {
+      const bandW = W * 0.15 / HZ_N;
+      const a = Math.pow(1 - i / HZ_N, 2.2) * 0.08;
+      horizGfx.fillStyle(0xb8d8ee, a);
+      horizGfx.fillRect(i * bandW, 0, bandW + 1, H);
+      horizGfx.fillRect(W - (i + 1) * bandW, 0, bandW + 1, H);
+    }
+
+    // ── Wind streaks: thin horizontal wisps drifting across the screen ───────
+    this._windStreakGfx = this.add.graphics().setDepth(4);
+    for (let i = 0; i < 12; i++) {
+      this._windStreaks.push({
+        x:     Math.random() * W,
+        y:     Math.random() * H * 0.85,
+        len:   80 + Math.random() * 220,
+        alpha: 0.04 + Math.random() * 0.08,
+        speed: 6  + Math.random() * 14,
+      });
+    }
+
     this._renderHintLine(W, H, HINT_H);
     this._renderEndCycleButton(W, H);
 
@@ -1134,8 +1170,8 @@ export class WorldMapScene extends Phaser.Scene {
     const bevelArt  = 1 - artAlpha; // fully gone once art is opaque
     if (this._terrainDetailGfx) this._terrainDetailGfx.setAlpha(bevelBase * bevelArt);
     // Clouds — only appear close up where individual tiles are large enough to warrant it
-    // zoomNear: 0 at INITIAL_ZOOM(2.0), 1 at MAX_ZOOM(14.0).  0.25 ≈ zoom 5, 0.42 ≈ zoom 7
-    if (this._cloudContainer)   this._cloudContainer.setAlpha(ss(zoomNear, 0.25, 0.42));
+    // zoomNear: 0 at INITIAL_ZOOM(2.0), 1 at MAX_ZOOM(14.0).  0.08 ≈ zoom 3, 0.30 ≈ zoom 5.6
+    if (this._cloudContainer)   this._cloudContainer.setAlpha(ss(zoomNear, 0.08, 0.30));
     // Drift each cloud puff across the map (mapContainer-local px per ms)
     for (const cd of this._cloudData) {
       cd.gfx.x += cd.vx * delta;
@@ -1148,10 +1184,28 @@ export class WorldMapScene extends Phaser.Scene {
     // Aerial haze (pale blue tint) and vignette: deepen at close zoom
     if (this._hazeGfx)     this._hazeGfx.setAlpha(ss(zoomNear, 0.10, 0.55) * 0.10);
     if (this._vignetteGfx) this._vignetteGfx.setAlpha(ss(zoomNear, 0.04, 0.38) * 0.85);
-    // City sprite grows slightly at close zoom — reinforces that it's nearer to the camera.
+    // Wind streaks: drift rightward, wrap at screen edge
+    if (this._windStreakGfx) {
+      const W = this.scale.width;
+      this._windStreakGfx.clear();
+      for (const s of this._windStreaks) {
+        s.x += s.speed * dt;
+        if (s.x > W + s.len) s.x = -s.len;
+        this._windStreakGfx.lineStyle(1, 0xdcecf8, s.alpha);
+        this._windStreakGfx.lineBetween(s.x, s.y, s.x + s.len, s.y);
+      }
+    }
+    // City sprite: grows from the orb as it fades in, then continues to scale with close zoom.
     if (this._citySprite) {
+      const FADE_START = LABEL_ZOOM * 0.50;
+      const fadeT = Phaser.Math.Clamp((this.currentZoom - FADE_START) / (LABEL_ZOOM - FADE_START), 0, 1);
+      const emergeT = fadeT < 0.5
+        ? 16 * fadeT * fadeT * fadeT * fadeT * fadeT
+        : 1 - Math.pow(-2 * fadeT + 2, 5) / 32;
       const baseSize = TILE_R * 1.2;
-      this._citySprite.setDisplaySize(baseSize * (1.0 + 0.4 * zoomNear), baseSize * (1.0 + 0.4 * zoomNear));
+      // Emerges from 0.4× (dot-sized) to 1.0× while fading in; then grows further at close zoom.
+      const sz = baseSize * (0.4 + 0.6 * emergeT) * (1.0 + 1.2 * zoomNear);
+      this._citySprite.setDisplaySize(sz, sz);
     }
 
     gfx.clear();
