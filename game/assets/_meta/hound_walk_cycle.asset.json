@@ -21,25 +21,23 @@
   },
   "optimization": {
     "enabled": true,
-    "backgroundRemovalRequested": true,
-    "notes": [
-      "Local matte background removal applied per frame."
-    ]
+    "backgroundRemovalRequested": false,
+    "notes": []
   },
   "spritesheet": {
     "columns": 6,
     "rows": 6,
-    "frameRate": 12,
+    "frameRate": 8,
     "animationType": "walk",
     "origin": {
       "x": 0.47,
       "y": 0.9
     },
     "collisionBox": {
-      "x": 15,
-      "y": 7,
-      "width": 140,
-      "height": 93
+      "x": 11,
+      "y": 6,
+      "width": 141,
+      "height": 95
     },
     "frameCount": 36
   },
@@ -49,6 +47,6 @@
     "mimeType": "image/webp",
     "sizeBytes": 177164
   },
-  "generatedAt": "2026-03-08T01:48:36.787Z",
+  "generatedAt": "2026-03-10T01:16:15.000Z",
   "notes": ""
 }
