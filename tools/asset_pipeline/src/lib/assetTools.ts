@@ -115,7 +115,6 @@ export function buildAssetMetadata(draft: AssetDraft, source: SourceInfo | null)
       coreHex: draft.terrainHexOverlay,
     } : undefined,
     source,
-    generatedAt: new Date().toISOString(),
     notes: draft.notes,
   };
 }

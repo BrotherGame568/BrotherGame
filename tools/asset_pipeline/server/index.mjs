@@ -753,7 +753,6 @@ async function updateCatalogAsset(previousAssetId, metadata) {
   filtered.push(metadata);
   filtered.sort((a, b) => a.id.localeCompare(b.id));
   const nextCatalog = {
-    generatedAt: new Date().toISOString(),
     assets: filtered,
   };
   await writeCatalogArtifacts(nextCatalog);
@@ -763,7 +762,6 @@ async function removeCatalogAsset(assetId) {
   const catalog = await readCatalog();
   const filtered = catalog.assets.filter((asset) => asset.id !== assetId);
   const nextCatalog = {
-    generatedAt: new Date().toISOString(),
     assets: filtered,
   };
   await writeCatalogArtifacts(nextCatalog);
@@ -779,7 +777,7 @@ async function readCatalog() {
     const raw = await fs.readFile(catalogPath, 'utf8');
     return JSON.parse(raw);
   } catch {
-    return { generatedAt: new Date().toISOString(), assets: [] };
+    return { assets: [] };
   }
 }
 
@@ -811,7 +809,6 @@ async function rebuildTerrainAtlases(assets) {
   await fs.mkdir(terrainAtlasesRoot, { recursive: true });
 
   const manifest = {
-    generatedAt: new Date().toISOString(),
     atlases: [],
   };
   const expectedFiles = new Set();
@@ -1071,7 +1068,6 @@ function buildPersistedMetadata(draft, file, result, existingAsset) {
       sizeBytes: file.size,
     },
     archivedAt: existingAsset?.status === 'archived' ? existingAsset.archivedAt : undefined,
-    generatedAt: new Date().toISOString(),
     notes: draft.notes,
   };
 }
@@ -1141,7 +1137,6 @@ function buildMetadataOnlyUpdate(existing, draft) {
     notes: draft.notes,
     status: existing.status ?? 'active',
     archivedAt: existing.status === 'archived' ? existing.archivedAt ?? new Date().toISOString() : undefined,
-    generatedAt: new Date().toISOString(),
   };
 }
 

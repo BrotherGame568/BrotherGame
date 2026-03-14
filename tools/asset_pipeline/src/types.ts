@@ -122,7 +122,6 @@ export interface AssetMetadataDocument {
     coreHex: TerrainHexOverlay;
   };
   source: SourceInfo | null;
-  generatedAt: string;
   notes: string;
 }
 
@@ -142,6 +141,5 @@ export interface PersistedAssetRecord extends AssetMetadataDocument {
 }
 
 export interface AssetCatalogDocument {
-  generatedAt: string;
   assets: PersistedAssetRecord[];
 }
