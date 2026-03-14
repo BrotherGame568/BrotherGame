@@ -94,6 +94,11 @@ export class MissionScene extends Phaser.Scene {
   private heightMap: number[] = [];
   private enemies: Enemy[] = [];
 
+  // Parallax background layers
+  private bgL3!: Phaser.GameObjects.TileSprite;
+  private bgL2!: Phaser.GameObjects.TileSprite;
+  private bgL1!: Phaser.GameObjects.TileSprite;
+
   // Combat
   private equippedWeapon!: WeaponDef;
   private attackCooldownUntil = 0;
@@ -187,6 +192,10 @@ export class MissionScene extends Phaser.Scene {
     }
     this.load.json('hero1_walk_cycle_meta', '_meta/hero1_walk_cycle.asset.json');
     this.load.json('hero1attack_meta', '_meta/hero1attack.asset.json');
+    // Forest parallax background layers
+    this.load.image('forest_l3', 'backgrounds/forest_l3.webp');
+    this.load.image('forest_l2', 'backgrounds/forest_l2.webp');
+    this.load.image('forest_l1', 'backgrounds/forest_l1.webp');
   }
 
   create(): void {
@@ -312,7 +321,7 @@ export class MissionScene extends Phaser.Scene {
     const biome = this._getBiome();
 
     // ── Background ────────────────────────────────────────
-    this._drawBackground(biome);
+    this._buildParallaxBg();
 
     // ── Ground ────────────────────────────────────────────
     this.groundGroup = this.physics.add.staticGroup();
@@ -398,6 +407,7 @@ export class MissionScene extends Phaser.Scene {
 
   update(): void {
     if (this.missionComplete) return;
+    this._updateParallax();
 
     const body = this.hero.body!;
 
@@ -690,6 +700,38 @@ export class MissionScene extends Phaser.Scene {
       case 'skydock': return { sky: 0x223355, ground: 0x445577, groundEdge: 0x6688aa, groundDark: 0x334466, platFill: 0x556688, platEdge: 0x7799bb, name: 'skydock' };
       default:        return { sky: 0x1a2a1a, ground: 0x336633, groundEdge: 0x44aa44, groundDark: 0x224422, platFill: 0x664422, platEdge: 0x886644, name: 'wild' };
     }
+  }
+
+  private _buildParallaxBg(): void {
+    const tileScale = WORLD_H / 1536;
+
+    // L3: Full scene — sky, mountains, airships, ruins (furthest back)
+    this.bgL3 = this.add.tileSprite(0, 0, 1920, WORLD_H, 'forest_l3')
+      .setOrigin(0, 0)
+      .setScrollFactor(0)
+      .setDepth(-30);
+    this.bgL3.setTileScale(tileScale);
+
+    // L2: Mid-layer tree (between background and terrain)
+    this.bgL2 = this.add.tileSprite(0, 0, 1920, WORLD_H, 'forest_l2')
+      .setOrigin(0, 0)
+      .setScrollFactor(0)
+      .setDepth(-20);
+    this.bgL2.setTileScale(tileScale);
+
+    // L1: Foreground frame — rocks, gears, side trees (transparent center lets gameplay show)
+    this.bgL1 = this.add.tileSprite(0, 0, 1920, WORLD_H, 'forest_l1')
+      .setOrigin(0, 0)
+      .setScrollFactor(0)
+      .setDepth(50);
+    this.bgL1.setTileScale(tileScale);
+  }
+
+  private _updateParallax(): void {
+    const scrollX = this.cameras.main.scrollX;
+    this.bgL3.tilePositionX = scrollX * 0.05;
+    this.bgL2.tilePositionX = scrollX * 0.25;
+    this.bgL1.tilePositionX = scrollX * 0.6;
   }
 
   private _drawBackground(biome: ReturnType<typeof this._getBiome>): void {
