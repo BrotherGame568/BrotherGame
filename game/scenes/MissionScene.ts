@@ -94,7 +94,7 @@ export class MissionScene extends Phaser.Scene {
   private heightMap: number[] = [];
   private enemies: Enemy[] = [];
 
-  // Parallax background layers
+  // Parallax background + foreground layers
   private bgL3!: Phaser.GameObjects.TileSprite;
   private bgL2!: Phaser.GameObjects.TileSprite;
   private bgL1!: Phaser.GameObjects.TileSprite;
@@ -332,6 +332,7 @@ export class MissionScene extends Phaser.Scene {
     this._buildTerrain(biome);
     this._buildObstacles(biome);
     this._buildMovingPlatforms(biome);
+    this._buildForegroundDeco();
 
     // ── Enemies ───────────────────────────────────────────
     this._spawnEnemies();
@@ -727,11 +728,59 @@ export class MissionScene extends Phaser.Scene {
     this.bgL1.setTileScale(tileScale);
   }
 
+  private _buildForegroundDeco(): void {
+    // Spread elements across a slightly wider-than-world X range to cover
+    // the extra drift introduced by scrollFactor > 1 at max camera scroll.
+    const spreadX = WORLD_W * 1.15;
+    const seedBase = this._hashString(this.context.missionId + '_fg');
+
+    for (let i = 0; i < 35; i++) {
+      const wx = this._pseudoRandom(seedBase + i * 7) * spreadX;
+      const wy = WORLD_H - 10 - this._pseudoRandom(seedBase + i * 3) * 45;
+      const kind = Math.floor(this._pseudoRandom(seedBase + i * 11) * 3);
+      const alpha = 0.55 + this._pseudoRandom(seedBase + i * 5) * 0.3;
+
+      const g = this.add.graphics()
+        .setScrollFactor(1.15)
+        .setDepth(2);
+
+      if (kind === 0) {
+        // Tall grass cluster
+        g.lineStyle(1, 0x2a3d1a, alpha);
+        for (let b = -2; b <= 2; b++) {
+          const h = 35 + this._pseudoRandom(seedBase + i + b) * 40;
+          const lean = b * 5 + (this._pseudoRandom(i * 3 + b) - 0.5) * 8;
+          g.lineBetween(wx + b * 4, wy, wx + b * 4 + lean, wy - h);
+        }
+      } else if (kind === 1) {
+        // Fern silhouette
+        g.lineStyle(1, 0x1e3320, alpha);
+        const h = 50 + this._pseudoRandom(seedBase + i * 2) * 35;
+        g.lineBetween(wx, wy, wx, wy - h);
+        for (let f = 1; f <= 5; f++) {
+          const fy = wy - (h * f / 5.5);
+          const fl = (6 - f) * 5;
+          g.lineBetween(wx, fy, wx - fl, fy - 7);
+          g.lineBetween(wx, fy, wx + fl, fy - 7);
+        }
+      } else {
+        // Low bush silhouette
+        g.fillStyle(0x1e3a18, alpha * 0.7);
+        const bw = 25 + this._pseudoRandom(seedBase + i * 4) * 20;
+        const bh = 18 + this._pseudoRandom(seedBase + i * 6) * 14;
+        g.fillEllipse(wx, wy - bh / 2, bw, bh);
+        g.lineStyle(1, 0x2d4f22, alpha);
+        g.strokeEllipse(wx, wy - bh / 2, bw, bh);
+      }
+    }
+  }
+
   private _updateParallax(): void {
     const scrollX = this.cameras.main.scrollX;
     this.bgL3.tilePositionX = scrollX * 0.05;
     this.bgL2.tilePositionX = scrollX * 0.25;
     this.bgL1.tilePositionX = scrollX * 0.6;
+    // fgDeco elements use setScrollFactor(1.15) — Phaser handles drift automatically
   }
 
   private _drawBackground(biome: ReturnType<typeof this._getBiome>): void {
@@ -891,14 +940,34 @@ export class MissionScene extends Phaser.Scene {
     gfx.closePath();
     gfx.fillPath();
 
-    // Top edge line (grass/surface edge)
-    gfx.lineStyle(3, biome.groundEdge, 1);
-    gfx.beginPath();
-    gfx.moveTo(0, this.heightMap[0]!);
-    for (let col = 1; col < TERRAIN_COLS; col++) {
-      gfx.lineTo(col * COL_W, this.heightMap[col]!);
+    // Cross-hatch texture strip in the top ~38px of the terrain bulk
+    const hatch = this.add.graphics();
+    hatch.lineStyle(1, biome.groundEdge, 0.13);
+    for (let col = 0; col < TERRAIN_COLS - 1; col++) {
+      if (this._pseudoRandom(col * 17 + 3) > 0.45) continue;
+      const x0 = col * COL_W;
+      const surfY = this.heightMap[col]!;
+      for (let pass = 0; pass < 3; pass++) {
+        const yOff = 6 + pass * 11;
+        hatch.lineBetween(x0 + 2, surfY + yOff, x0 + 10, surfY + yOff + 8);
+      }
     }
-    gfx.strokePath();
+
+    // Top edge — multi-stroke "comic ink" line
+    const edgePath = new Phaser.Curves.Path(0, this.heightMap[0]!);
+    for (let col = 1; col < TERRAIN_COLS; col++) {
+      edgePath.lineTo(col * COL_W, this.heightMap[col]!);
+    }
+    const edgeGfx = this.add.graphics();
+    // Pass 1 — wide soft underglow (ink bleed)
+    edgeGfx.lineStyle(7, biome.groundEdge, 0.12);
+    edgePath.draw(edgeGfx);
+    // Pass 2 — main ink line
+    edgeGfx.lineStyle(2, biome.groundEdge, 1.0);
+    edgePath.draw(edgeGfx);
+    // Pass 3 — bright surface highlight
+    edgeGfx.lineStyle(1, 0xffffff, 0.18);
+    edgePath.draw(edgeGfx);
 
     // Physics bodies: full-height rectangles from the surface down to the world
     // floor so the hero can't fall through even at high fall speeds.
@@ -910,16 +979,41 @@ export class MissionScene extends Phaser.Scene {
       this.groundGroup.add(body);
     }
 
-    // Surface detail: tiny grass tufts / rubble marks along the top
-    const detailGfx = this.add.graphics();
-    detailGfx.lineStyle(1, biome.groundEdge, 0.5);
-    for (let col = 1; col < TERRAIN_COLS - 1; col++) {
-      if (this._pseudoRandom(col * 17 + 11) > 0.5) continue;
-      const bx = col * COL_W + this._pseudoRandom(col * 7) * COL_W;
-      const by = this.heightMap[col]!;
-      const tuftH = 4 + this._pseudoRandom(col * 31) * 8;
-      detailGfx.lineBetween(bx, by, bx - 3, by - tuftH);
-      detailGfx.lineBetween(bx, by, bx + 3, by - tuftH);
+    // Surface detail: grass blades, ferns, and root bumps along the terrain top
+    for (let col = 2; col < TERRAIN_COLS - 2; col++) {
+      if (this._pseudoRandom(col * 31 + 11) > 0.38) continue;
+      const cx = col * COL_W + COL_W / 2;
+      const baseY = this.heightMap[col]!;
+      const type = Math.floor(this._pseudoRandom(col * 7 + 2) * 3);
+      const decoGfx = this.add.graphics();
+
+      if (type === 0) {
+        // Tall grass blades — 3 thin strokes fanning out
+        decoGfx.lineStyle(1, biome.groundEdge, 0.55);
+        for (let b = -1; b <= 1; b++) {
+          const lean = b * 4 + (this._pseudoRandom(col + b * 13) - 0.5) * 3;
+          const h = 8 + this._pseudoRandom(col * 3 + b) * 10;
+          decoGfx.lineBetween(cx + b * 3, baseY, cx + b * 3 + lean, baseY - h);
+        }
+      } else if (type === 1) {
+        // Fern — central stem + 4 small side fronds
+        decoGfx.lineStyle(1, biome.groundEdge, 0.5);
+        const h = 12 + this._pseudoRandom(col * 5) * 8;
+        decoGfx.lineBetween(cx, baseY, cx, baseY - h);
+        for (let f = 1; f <= 4; f++) {
+          const fy = baseY - (h * f / 4.5);
+          const fl = (5 - f) * 3;
+          decoGfx.lineBetween(cx, fy, cx - fl, fy - 4);
+          decoGfx.lineBetween(cx, fy, cx + fl, fy - 4);
+        }
+      } else {
+        // Root bump — small arc above ground
+        decoGfx.lineStyle(2, biome.groundDark, 0.5);
+        const bw = 10 + this._pseudoRandom(col * 9) * 8;
+        decoGfx.beginPath();
+        decoGfx.arc(cx, baseY, bw / 2, Math.PI, 0, false);
+        decoGfx.strokePath();
+      }
     }
 
     // ── Jump physics constants (must match MissionScene update values) ──────
@@ -977,12 +1071,26 @@ export class MissionScene extends Phaser.Scene {
       this.placedPlatforms.push({ minX: pMinX, maxX: pMaxX, py, pw });
 
       const platGfx = this.add.graphics();
-      platGfx.fillStyle(biome.platFill, 1);
-      platGfx.fillRoundedRect(px - pw / 2, py, pw, PLAT_H, 4);
-      platGfx.lineStyle(2, biome.platEdge, 1);
-      platGfx.strokeRoundedRect(px - pw / 2, py, pw, PLAT_H, 4);
-      platGfx.fillStyle(0x000000, 0.15);
-      platGfx.fillRect(px - pw / 2 + 4, py + PLAT_H, pw - 8, 6);
+      // Drop shadow
+      platGfx.fillStyle(0x000000, 0.25);
+      platGfx.fillRoundedRect(px - pw / 2 + 3, py + 4, pw, PLAT_H, 3);
+      // Front face — darker, gives 3D slab depth
+      platGfx.fillStyle(biome.groundDark, 1.0);
+      platGfx.fillRect(px - pw / 2, py + PLAT_H - 5, pw, 7);
+      // Main top surface
+      platGfx.fillStyle(biome.platFill, 1.0);
+      platGfx.fillRoundedRect(px - pw / 2, py, pw, PLAT_H - 1, 3);
+      // Top highlight
+      platGfx.lineStyle(1, 0xffffff, 0.22);
+      platGfx.lineBetween(px - pw / 2 + 5, py + 2, px + pw / 2 - 5, py + 2);
+      // Plank division lines
+      platGfx.lineStyle(1, biome.groundDark, 0.35);
+      const thirds = pw / 3;
+      platGfx.lineBetween(px - pw / 2 + thirds,     py + 3, px - pw / 2 + thirds,     py + PLAT_H - 4);
+      platGfx.lineBetween(px - pw / 2 + thirds * 2, py + 3, px - pw / 2 + thirds * 2, py + PLAT_H - 4);
+      // Outline
+      platGfx.lineStyle(2, biome.platEdge, 1.0);
+      platGfx.strokeRoundedRect(px - pw / 2, py, pw, PLAT_H, 3);
       const platBody = this.add.zone(px, py + PLAT_H / 2, pw, PLAT_H);
       this.platformGroup.add(platBody);
       return true;
@@ -1080,6 +1188,22 @@ export class MissionScene extends Phaser.Scene {
       gfx.lineStyle(1, biome.groundEdge, 0.4);
       gfx.strokeRect(x - w / 2, top - 10, cW, 10);
       gfx.strokeRect(x + w / 2 - cW, top - 10, cW, 10);
+      // Masonry joints — horizontal lines every 20px
+      gfx.lineStyle(1, biome.groundDark, 0.45);
+      for (let yLine = top + 20; yLine < top + h; yLine += 20) {
+        gfx.lineBetween(x - w / 2, yLine, x + w / 2, yLine);
+      }
+      // Running bond offset on alternating rows
+      gfx.lineStyle(1, biome.groundDark, 0.25);
+      for (let yLine = top + 10; yLine < top + h; yLine += 20) {
+        gfx.lineBetween(x, yLine, x + w / 2, yLine);
+      }
+      // Diagonal crack detail on ~60% of pillars
+      if (this._pseudoRandom(x * 0.007 + 3) > 0.4) {
+        const crackX = x - w / 2 + w * (0.3 + this._pseudoRandom(x) * 0.4);
+        gfx.lineStyle(1, biome.groundDark, 0.6);
+        gfx.lineBetween(crackX, top + 8, crackX - 5, top + h * 0.4);
+      }
 
       // Physics zone — solid from all sides
       const zone = this.add.zone(x, top + h / 2, w, h);
@@ -1138,12 +1262,27 @@ export class MissionScene extends Phaser.Scene {
 
       this.placedPlatforms.push({ minX, maxX, py, pw });
 
-      // Visual — white outline + arrow indicators to signal it moves
+      // Visual — layered platform + white outline + arrow indicators to signal it moves
       const gfx = this.add.graphics();
-      gfx.fillStyle(biome.platFill, 1);
-      gfx.fillRoundedRect(-pw / 2, 0, pw, PLAT_H, 4);
+      // Drop shadow
+      gfx.fillStyle(0x000000, 0.25);
+      gfx.fillRoundedRect(-pw / 2 + 3, 4, pw, PLAT_H, 3);
+      // Front face
+      gfx.fillStyle(biome.groundDark, 1.0);
+      gfx.fillRect(-pw / 2, PLAT_H - 5, pw, 7);
+      // Main surface
+      gfx.fillStyle(biome.platFill, 1.0);
+      gfx.fillRoundedRect(-pw / 2, 0, pw, PLAT_H - 1, 3);
+      // Top highlight
+      gfx.lineStyle(1, 0xffffff, 0.22);
+      gfx.lineBetween(-pw / 2 + 5, 2, pw / 2 - 5, 2);
+      // Plank lines
+      gfx.lineStyle(1, biome.groundDark, 0.35);
+      gfx.lineBetween(-pw / 6, 3, -pw / 6, PLAT_H - 4);
+      gfx.lineBetween(pw / 6, 3, pw / 6, PLAT_H - 4);
+      // White outline + arrows
       gfx.lineStyle(2, 0xffffff, 0.35);
-      gfx.strokeRoundedRect(-pw / 2, 0, pw, PLAT_H, 4);
+      gfx.strokeRoundedRect(-pw / 2, 0, pw, PLAT_H, 3);
       gfx.fillStyle(0xffffff, 0.2);
       gfx.fillTriangle(-pw / 2 + 8, 9, -pw / 2 + 18, 4, -pw / 2 + 18, 14);
       gfx.fillTriangle(pw / 2 - 8, 9, pw / 2 - 18, 4, pw / 2 - 18, 14);
