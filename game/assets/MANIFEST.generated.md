@@ -9,6 +9,8 @@
 | `hero1_walk_cycle` | Generated from video (walk) | `animations/hero1_walk_cycle.webp` | 6×6 cells, 160×90 display | webp spritesheet | generated |
 | `hero1attack` | Generated from video (walk) | `animations/hero1attack.webp` | 6×6 cells, 249×140 display | webp spritesheet | generated |
 | `hound_walk_cycle` | walk animation sheet | `animations/hound_walk_cycle.webp` | 6×6 cells, 195×110 display | webp spritesheet | generated |
+| `kael_the_iron_skirmisher` | ui asset | `ui/kael_the_iron_skirmisher.webp` | 778×1050 | webp | generated |
+| `lyra_the_vellum_scout` | ui asset | `ui/lyra_the_vellum_scout.webp` | 760×1049 | webp | generated |
 | `rootwalker_walk_cycle` | walk animation sheet | `animations/rootwalker_walk_cycle.webp` | 6×6 cells, 180×180 display | webp spritesheet | generated |
 | `spiderwalkcycle` | Generated from video (walk) | `animations/spiderwalkcycle.webp` | 6×6 cells, 90×51 display | webp spritesheet | generated |
 | `terrain_alpine_01` | alpine terrain tile v01 | `terrain_tiles/terrain_alpine_01.webp` | 384×384 | webp | generated |

@@ -1,0 +1,36 @@
+{
+  "id": "lyra_the_vellum_scout",
+  "name": "Lyra The Vellum Scout",
+  "status": "active",
+  "category": "ui",
+  "mode": "image",
+  "outputFormat": "webp",
+  "maintainAspectRatio": true,
+  "resizeFit": "contain",
+  "outputRelativePath": "game/assets/ui/lyra_the_vellum_scout.webp",
+  "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\ui\\lyra_the_vellum_scout.webp",
+  "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\lyra_the_vellum_scout.asset.json",
+  "metadataRelativePath": "game/assets/_meta/lyra_the_vellum_scout.asset.json",
+  "exportSize": {
+    "width": 760,
+    "height": 1049
+  },
+  "displaySize": {
+    "width": 370,
+    "height": 511
+  },
+  "optimization": {
+    "enabled": true,
+    "backgroundRemovalRequested": false,
+    "cropToBoundingBoxRequested": false,
+    "notes": []
+  },
+  "source": {
+    "kind": "image",
+    "name": "Lyra - The Vellum Scout.webp",
+    "mimeType": "image/webp",
+    "sizeBytes": 121588
+  },
+  "generatedAt": "2026-03-14T04:44:28.893Z",
+  "notes": ""
+}

@@ -15,7 +15,6 @@ import type { IResourceSystem }         from '@systems/IResourceSystem';
 import type { IAudioService }           from '@services/IAudioService';
 import type { HexTile, AxialCoord }     from '@data/HexTile';
 import { hexId, hexDistance }           from '@data/HexTile';
-import type { Hero }                    from '@data/Hero';
 import type { WindCorridor, WindJunction } from '@data/WindNetwork';
 import { fbm }                          from '@data/NoiseUtils';
 import type { ServiceBundle }           from '../../src/main';
@@ -388,7 +387,6 @@ export class WorldMapScene extends Phaser.Scene {
   private mapCtrY     = 0;
 
   private routeOverlay:   Phaser.GameObjects.Container | null = null;
-  private modalContainer: Phaser.GameObjects.Container | null = null;
   private resultOverlay:  Phaser.GameObjects.Container | null = null;
 
   private titleText!:    Phaser.GameObjects.Text;
@@ -451,7 +449,6 @@ export class WorldMapScene extends Phaser.Scene {
     this._endCycleBtnGfx       = null;
     this._endCycleBtnSubLbl    = null;
     this.routeOverlay    = null;
-    this.modalContainer  = null;
     this.resultOverlay   = null;
   }
 
@@ -2476,114 +2473,18 @@ export class WorldMapScene extends Phaser.Scene {
   }
 
   private _openPartySelection(tile: HexTile): void {
-    if (this.modalContainer) return;
-    const W = this.scale.width;
-    const H = this.scale.height;
-    const modalW = 560; const modalH = 480;
-    const mx = (W - modalW) / 2; const my = (H - modalH) / 2;
-
-    this.modalContainer = this.add.container(0, 0).setDepth(100);
-    const dim = this.add.graphics();
-    dim.fillStyle(0x000000, 0.60); dim.fillRect(0, 0, W, H);
-    dim.setInteractive(new Phaser.Geom.Rectangle(0, 0, W, H), Phaser.Geom.Rectangle.Contains);
-    this.modalContainer.add(dim);
-
-    const panel = this.add.graphics();
-    panel.fillStyle(0x1a1a2e, 0.95); panel.fillRoundedRect(mx, my, modalW, modalH, 10);
-    panel.lineStyle(2, 0x4488cc, 1); panel.strokeRoundedRect(mx, my, modalW, modalH, 10);
-    this.modalContainer.add(panel);
-
-    const display = SITE_DISPLAY[tile.siteType] ?? SITE_DISPLAY['empty']!;
-    this.modalContainer.add(this.add.text(mx + modalW / 2, my + 20,
-      tile.siteType.toUpperCase() + ' -- ' + tile.id, {
-        fontSize: '16px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0.5));
-    this.modalContainer.add(this.add.text(mx + 20, my + 45,
-      'Danger: ' + tile.dangerLevel + '   State: ' + tile.siteState + '   Type: ' + display.label, {
-        fontSize: '11px', color: '#aaaaaa', fontFamily: 'monospace',
-      }));
-    this.modalContainer.add(this.add.text(mx + 20, my + 70, 'Select Active Hero:', {
-      fontSize: '12px', color: '#66ccff', fontFamily: 'monospace',
-    }));
-
-    const available       = this.heroSystem.getAvailable();
-    let selectedActiveId:  string | null = null;
-    let selectedSupportId: string | null = null;
-
-    available.forEach((hero) => {
-      const btnY = my + 118 + available.indexOf(hero) * 36;
-      const btn  = this.add.text(mx + 36, btnY,
-        hero.name + ' (' + hero.heroClass + ')  C:' + hero.stats.combat +
-        ' E:' + hero.stats.exploration + ' D:' + hero.stats.diplomacy,
-        { fontSize: '16px', color: '#cccccc', fontFamily: 'monospace' })
-        .setInteractive({ useHandCursor: true });
-      btn.on('pointerdown', () => {
-        if (selectedActiveId) return;
-        selectedActiveId = hero.id;
-        btn.setColor('#66ff66');
-        btn.setText('> ' + hero.name + ' (ACTIVE)');
-        this._addSupportPrompt(
-          mx, my, modalW, available, selectedActiveId, selectedSupportId,
-          (sid) => { selectedSupportId = sid; },
-          () => this._confirmParty(tile, selectedActiveId!, selectedSupportId),
-        );
-      });
-      this.modalContainer!.add(btn);
+    this.scene.launch('CharacterSelectScene', { tile, ...this.services });
+    const sel = this.scene.get('CharacterSelectScene');
+    sel.events.once('confirmed', ({ activeHeroId, supportHeroId }: { activeHeroId: string; supportHeroId: string | null }) => {
+      this._launchMission(tile, activeHeroId, supportHeroId);
     });
-
-    if (available.length === 0) {
-      this.modalContainer.add(this.add.text(mx + 36, my + 118, 'No heroes available!', {
-        fontSize: '17px', color: '#ff6666', fontFamily: 'monospace',
-      }));
-    }
-
-    const cancelBtn = this.add.text(mx + modalW / 2, my + modalH - 28, '[ Cancel ]', {
-      fontSize: '20px', color: '#ff6666', fontFamily: 'monospace',
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    cancelBtn.on('pointerdown', () => this._closeModal());
-    this.modalContainer.add(cancelBtn);
   }
 
-  private _addSupportPrompt(
-    mx: number, my: number, modalW: number,
-    heroes: Hero[],
-    activeId: string,
-    _cur: string | null,
-    onSelect: (id: string | null) => void,
-    onConfirm: () => void,
-  ): void {
-    if (!this.modalContainer) return;
-    const supportHeroes = heroes.filter(h => h.id !== activeId);
-    const promptY = my + 280;
-
-    this.modalContainer.add(this.add.text(mx + 24, promptY, 'Support hero (optional):', {
-      fontSize: '18px', color: '#66ccff', fontFamily: 'monospace',
-    }));
-
-    supportHeroes.forEach((hero, i) => {
-      const btn = this.add.text(mx + 36, promptY + 28 + i * 30,
-        hero.name + ' (' + hero.heroClass + ')',
-        { fontSize: '16px', color: '#cccccc', fontFamily: 'monospace' })
-        .setInteractive({ useHandCursor: true });
-      btn.on('pointerdown', () => {
-        btn.setColor('#6699ff');
-        btn.setText('>> ' + hero.name + ' (SUPPORT)');
-        onSelect(hero.id);
-      });
-      this.modalContainer!.add(btn);
-    });
-
-    const goBtn = this.add.text(mx + modalW / 2, promptY + 110, '[ Launch Mission ]', {
-      fontSize: '20px', color: '#66ff66', fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    goBtn.on('pointerdown', () => onConfirm());
-    this.modalContainer.add(goBtn);
-  }
-
-  private _confirmParty(tile: HexTile, activeId: string, supportId: string | null): void {
-    const activeHero = this.heroSystem.getById(activeId);
+  private _launchMission(tile: HexTile, activeId: string, supportId: string | null): void {
+    const activeHero  = this.heroSystem.getById(activeId);
     if (!activeHero) return;
     const supportHero = supportId ? this.heroSystem.getById(supportId) : null;
+
     this.heroSystem.assignToMission({ activeHeroId: activeId, supportHeroId: supportId });
 
     this.gsm.setMissionContext({
@@ -2612,15 +2513,9 @@ export class WorldMapScene extends Phaser.Scene {
       ],
     });
 
-    this._closeModal();
     const uiScene = this.scene.get('UIScene');
     if (uiScene) (uiScene as unknown as { hide(): void }).hide();
     this.scene.start('MissionScene', this.services);
-  }
-
-  private _closeModal(): void {
-    this.modalContainer?.destroy(true);
-    this.modalContainer = null;
   }
 
   private _openCityView(): void {

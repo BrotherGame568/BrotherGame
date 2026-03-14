@@ -8,8 +8,8 @@
  * Writes to GSM:   missionResult
  *
  * === TRANSITIONS ===
- * ← HexZoomScene   (launched after party selection)
- * → HexZoomScene   (scene stops after writing missionResult to GSM)
+ * ← WorldMapScene  (launched after CharacterSelectScene confirms party)
+ * → WorldMapScene  (scene stops after writing missionResult to GSM)
  *
  * Minimal version: procedural ground/platforms, resource pickups, exit zone.
  * No combat — just walk, jump, collect, and reach the exit.

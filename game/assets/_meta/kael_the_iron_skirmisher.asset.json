@@ -1,0 +1,36 @@
+{
+  "id": "kael_the_iron_skirmisher",
+  "name": "Kael   The Iron Skirmisher",
+  "status": "active",
+  "category": "ui",
+  "mode": "image",
+  "outputFormat": "webp",
+  "maintainAspectRatio": true,
+  "resizeFit": "contain",
+  "outputRelativePath": "game/assets/ui/kael_the_iron_skirmisher.webp",
+  "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\ui\\kael_the_iron_skirmisher.webp",
+  "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\kael_the_iron_skirmisher.asset.json",
+  "metadataRelativePath": "game/assets/_meta/kael_the_iron_skirmisher.asset.json",
+  "exportSize": {
+    "width": 778,
+    "height": 1050
+  },
+  "displaySize": {
+    "width": 370,
+    "height": 499
+  },
+  "optimization": {
+    "enabled": true,
+    "backgroundRemovalRequested": false,
+    "cropToBoundingBoxRequested": false,
+    "notes": []
+  },
+  "source": {
+    "kind": "image",
+    "name": "Kael - The Iron Skirmisher.webp",
+    "mimeType": "image/webp",
+    "sizeBytes": 137040
+  },
+  "generatedAt": "2026-03-14T04:43:24.042Z",
+  "notes": ""
+}
