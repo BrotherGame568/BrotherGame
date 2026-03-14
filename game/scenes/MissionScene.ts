@@ -719,11 +719,11 @@ export class MissionScene extends Phaser.Scene {
       .setDepth(-20);
     this.bgL2.setTileScale(tileScale);
 
-    // L1: Foreground frame — rocks, gears, side trees (transparent center lets gameplay show)
+    // L1: Near-background layer — rocks, gears, side trees (behind terrain and characters)
     this.bgL1 = this.add.tileSprite(0, 0, 1920, WORLD_H, 'forest_l1')
       .setOrigin(0, 0)
       .setScrollFactor(0)
-      .setDepth(50);
+      .setDepth(-10);
     this.bgL1.setTileScale(tileScale);
   }
 
