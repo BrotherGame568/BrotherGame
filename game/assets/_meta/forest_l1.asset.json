@@ -1,0 +1,35 @@
+{
+  "id": "forest_l1",
+  "name": "Forest L1",
+  "status": "active",
+  "category": "backgrounds",
+  "mode": "image",
+  "outputFormat": "webp",
+  "maintainAspectRatio": true,
+  "resizeFit": "contain",
+  "outputRelativePath": "game/assets/backgrounds/forest_l1.webp",
+  "outputAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\backgrounds\\forest_l1.webp",
+  "metadataAbsolutePath": "C:\\Users\\oacom\\Documents\\AI_Code\\BrotherGame\\game\\assets\\_meta\\forest_l1.asset.json",
+  "metadataRelativePath": "game/assets/_meta/forest_l1.asset.json",
+  "exportSize": {
+    "width": 3845,
+    "height": 1536
+  },
+  "displaySize": {
+    "width": 3845,
+    "height": 1536
+  },
+  "optimization": {
+    "enabled": true,
+    "backgroundRemovalRequested": false,
+    "cropToBoundingBoxRequested": false,
+    "notes": []
+  },
+  "source": {
+    "kind": "image",
+    "name": "Forest L1.png",
+    "mimeType": "image/png",
+    "sizeBytes": 7492939
+  },
+  "notes": ""
+}

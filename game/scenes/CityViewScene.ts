@@ -58,7 +58,7 @@ export class CityViewScene extends Phaser.Scene {
 
   preload(): void {
     if (!this.textures.exists('city_bg')) {
-      this.load.image('city_bg', 'backgrounds/City_Close_View_Basic.png');
+      this.load.image('city_bg', 'backgrounds/city_close_view_basic.webp');
     }
   }
 

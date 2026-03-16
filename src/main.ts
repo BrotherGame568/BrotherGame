@@ -32,11 +32,12 @@ import { SaveServiceStub }         from '@services/ISaveService';
 import { initializeGameState }     from '@data/InitialGameState';
 
 // ── Scene imports ─────────────────────────────────────────────
-import { WorldMapScene }  from '@scenes/WorldMapScene';
-import { AirCombatScene } from '@scenes/AirCombatScene';
-import { MissionScene }   from '@scenes/MissionScene';
-import { CityViewScene }  from '@scenes/CityViewScene';
-import { UIScene }        from '@scenes/UIScene';
+import { WorldMapScene }        from '@scenes/WorldMapScene';
+import { AirCombatScene }       from '@scenes/AirCombatScene';
+import { MissionScene }         from '@scenes/MissionScene';
+import { CharacterSelectScene } from '@scenes/CharacterSelectScene';
+import { CityViewScene }        from '@scenes/CityViewScene';
+import { UIScene }              from '@scenes/UIScene';
 
 // ── Type-only imports ─────────────────────────────────────────
 import type { IGameStateManager }    from '@systems/IGameStateManager';
@@ -113,6 +114,7 @@ const config: Phaser.Types.Core.GameConfig = {
     WorldMapScene,
     AirCombatScene,
     MissionScene,
+    CharacterSelectScene,
     CityViewScene,
     UIScene,
   ],

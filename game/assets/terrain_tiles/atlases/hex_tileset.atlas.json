@@ -1,0 +1,1088 @@
+{
+  "frames": {
+    "terrain_alpine_01": {
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "alpine",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_alpine_01",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.09114583333333333
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_alpine_01.webp"
+      }
+    },
+    "terrain_alpine_02": {
+      "frame": {
+        "x": 384,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "alpine",
+        "variant": 2,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_alpine_02",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.09114583333333333
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_alpine_02.webp"
+      }
+    },
+    "terrain_alpine_03": {
+      "frame": {
+        "x": 768,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "alpine",
+        "variant": 3,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_alpine_03",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.057291666666666664
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_alpine_03.webp"
+      }
+    },
+    "terrain_alpine_04": {
+      "frame": {
+        "x": 1152,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "alpine",
+        "variant": 4,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_alpine_04",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.0078125
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_alpine_04.webp"
+      }
+    },
+    "terrain_alpine_05": {
+      "frame": {
+        "x": 1536,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "alpine",
+        "variant": 5,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_alpine_05",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.078125
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_alpine_05.webp"
+      }
+    },
+    "terrain_alpine_06": {
+      "frame": {
+        "x": 0,
+        "y": 384,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "alpine",
+        "variant": 6,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_alpine_06",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.044270833333333336
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_alpine_06.webp"
+      }
+    },
+    "terrain_bare_rock_01": {
+      "frame": {
+        "x": 384,
+        "y": 384,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "bare_rock",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_bare_rock_01",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.13020833333333334
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_bare_rock_01.webp"
+      }
+    },
+    "terrain_desert_dunes_01": {
+      "frame": {
+        "x": 768,
+        "y": 384,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "desert_dunes",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_desert_dunes_01",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.0625
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_desert_dunes_01.webp"
+      }
+    },
+    "terrain_mangrove_01": {
+      "frame": {
+        "x": 1152,
+        "y": 384,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "mangrove",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_mangrove_01",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.1640625
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_mangrove_01.webp"
+      }
+    },
+    "terrain_mangrove_02": {
+      "frame": {
+        "x": 1536,
+        "y": 384,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "mangrove",
+        "variant": 2,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_mangrove_02",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.13802083333333334
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_mangrove_02.webp"
+      }
+    },
+    "terrain_savanna_01": {
+      "frame": {
+        "x": 0,
+        "y": 768,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "savanna",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_savanna_01",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.026041666666666668
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_savanna_01.webp"
+      }
+    },
+    "terrain_shallow_sea_01": {
+      "frame": {
+        "x": 384,
+        "y": 768,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "shallow_sea",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_shallow_sea_01",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.049479166666666664
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_shallow_sea_01.webp"
+      }
+    },
+    "terrain_shallow_sea_02": {
+      "frame": {
+        "x": 768,
+        "y": 768,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "shallow_sea",
+        "variant": 2,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_shallow_sea_02",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.013020833333333334
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_shallow_sea_02.webp"
+      }
+    },
+    "terrain_snow_peaks_01": {
+      "frame": {
+        "x": 1152,
+        "y": 768,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "snow_peaks",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_snow_peaks_01",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.1484375
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_snow_peaks_01.webp"
+      }
+    },
+    "terrain_snow_peaks_02": {
+      "frame": {
+        "x": 1536,
+        "y": 768,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "snow_peaks",
+        "variant": 2,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_snow_peaks_02",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.1953125
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_snow_peaks_02.webp"
+      }
+    },
+    "terrain_snow_peaks_03": {
+      "frame": {
+        "x": 0,
+        "y": 1152,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "snow_peaks",
+        "variant": 3,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_snow_peaks_03",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.0234375
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_snow_peaks_03.webp"
+      }
+    },
+    "terrain_snow_peaks_04": {
+      "frame": {
+        "x": 384,
+        "y": 1152,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "snow_peaks",
+        "variant": 4,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_snow_peaks_04",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.026041666666666668
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_snow_peaks_04.webp"
+      }
+    },
+    "terrain_snow_peaks_05": {
+      "frame": {
+        "x": 768,
+        "y": 1152,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "snow_peaks",
+        "variant": 5,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_snow_peaks_05",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.018229166666666668
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_snow_peaks_05.webp"
+      }
+    },
+    "terrain_snow_peaks_06": {
+      "frame": {
+        "x": 1152,
+        "y": 1152,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "snow_peaks",
+        "variant": 6,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_snow_peaks_06",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.010416666666666666
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_snow_peaks_06.webp"
+      }
+    },
+    "terrain_snow_peaks_07": {
+      "frame": {
+        "x": 1536,
+        "y": 1152,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "snow_peaks",
+        "variant": 7,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_snow_peaks_07",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.052083333333333336
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_snow_peaks_07.webp"
+      }
+    },
+    "terrain_snow_peaks_08": {
+      "frame": {
+        "x": 0,
+        "y": 1536,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "snow_peaks",
+        "variant": 8,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_snow_peaks_08",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.015625
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_snow_peaks_08.webp"
+      }
+    },
+    "terrain_temperate_forest_01": {
+      "frame": {
+        "x": 384,
+        "y": 1536,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "temperate_forest",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_temperate_forest_01",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.12239583333333333
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_temperate_forest_01.webp"
+      }
+    },
+    "terrain_woodland_01": {
+      "frame": {
+        "x": 768,
+        "y": 1536,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "woodland",
+        "variant": 1,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_woodland_01",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.125
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_woodland_01.webp"
+      }
+    },
+    "terrain_woodland_02": {
+      "frame": {
+        "x": 1152,
+        "y": 1536,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "terrain": {
+        "terrainType": "woodland",
+        "variant": 2,
+        "atlasGroup": "hex_tileset",
+        "sourceAssetId": "terrain_woodland_02",
+        "coreHex": {
+          "centerX": 0.5,
+          "centerY": 0.55,
+          "radius": 0.3333333333333333,
+          "squashY": 0.55,
+          "topOverflow": 0.1328125
+        },
+        "displaySize": {
+          "width": 256,
+          "height": 122
+        },
+        "outputRelativePath": "game/assets/terrain_tiles/terrain_woodland_02.webp"
+      }
+    }
+  },
+  "meta": {
+    "app": "BrotherGame Asset Manager",
+    "version": "1.0",
+    "image": "hex_tileset.webp",
+    "format": "RGBA8888",
+    "size": {
+      "w": 1920,
+      "h": 1920
+    },
+    "scale": "1",
+    "terrainAtlas": {
+      "group": "hex_tileset",
+      "tileCount": 24,
+      "columns": 5,
+      "rows": 5,
+      "cellSize": {
+        "width": 384,
+        "height": 384
+      },
+      "terrainTypes": [
+        "alpine",
+        "bare_rock",
+        "desert_dunes",
+        "mangrove",
+        "savanna",
+        "shallow_sea",
+        "snow_peaks",
+        "temperate_forest",
+        "woodland"
+      ],
+      "terrainTypeIndex": {
+        "alpine": [
+          "terrain_alpine_01",
+          "terrain_alpine_02",
+          "terrain_alpine_03",
+          "terrain_alpine_04",
+          "terrain_alpine_05",
+          "terrain_alpine_06"
+        ],
+        "bare_rock": [
+          "terrain_bare_rock_01"
+        ],
+        "desert_dunes": [
+          "terrain_desert_dunes_01"
+        ],
+        "mangrove": [
+          "terrain_mangrove_01",
+          "terrain_mangrove_02"
+        ],
+        "savanna": [
+          "terrain_savanna_01"
+        ],
+        "shallow_sea": [
+          "terrain_shallow_sea_01",
+          "terrain_shallow_sea_02"
+        ],
+        "snow_peaks": [
+          "terrain_snow_peaks_01",
+          "terrain_snow_peaks_02",
+          "terrain_snow_peaks_03",
+          "terrain_snow_peaks_04",
+          "terrain_snow_peaks_05",
+          "terrain_snow_peaks_06",
+          "terrain_snow_peaks_07",
+          "terrain_snow_peaks_08"
+        ],
+        "temperate_forest": [
+          "terrain_temperate_forest_01"
+        ],
+        "woodland": [
+          "terrain_woodland_01",
+          "terrain_woodland_02"
+        ]
+      }
+    }
+  }
+}

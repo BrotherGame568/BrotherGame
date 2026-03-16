@@ -8,8 +8,8 @@
  * Writes to GSM:   missionResult
  *
  * === TRANSITIONS ===
- * ← HexZoomScene   (launched after party selection)
- * → HexZoomScene   (scene stops after writing missionResult to GSM)
+ * ← WorldMapScene  (launched after CharacterSelectScene confirms party)
+ * → WorldMapScene  (scene stops after writing missionResult to GSM)
  *
  * Minimal version: procedural ground/platforms, resource pickups, exit zone.
  * No combat — just walk, jump, collect, and reach the exit.
@@ -24,7 +24,7 @@ import type { IAudioService } from '@services/IAudioService';
 import type { MissionContext, MissionResult } from '@data/MissionContext';
 import type { ResourceSurface } from '@data/HexTile';
 import type { ServiceBundle } from '../../src/main';
-import { Enemy, SmallEnemy, MediumEnemy, LargeEnemy, type EnemyVisualConfig, type PendingProjectile } from '../entities/Enemy';
+import { Enemy, SmallEnemy, MediumEnemy, LargeEnemy, FlyingDasher, FlyingShooter, type EnemyVisualConfig, type PendingProjectile } from '../entities/Enemy';
 import { type WeaponDef, WEAPONS } from '../entities/Weapon';
 
 export const MISSION_SCENE_KEY = 'MissionScene';
@@ -94,6 +94,11 @@ export class MissionScene extends Phaser.Scene {
   private heightMap: number[] = [];
   private enemies: Enemy[] = [];
 
+  // Parallax background + foreground layers
+  private bgL3!: Phaser.GameObjects.TileSprite;
+  private bgL2!: Phaser.GameObjects.TileSprite;
+  private bgL1!: Phaser.GameObjects.TileSprite;
+
   // Combat
   private equippedWeapon!: WeaponDef;
   private attackCooldownUntil = 0;
@@ -142,7 +147,8 @@ export class MissionScene extends Phaser.Scene {
   private projectiles: Array<{
     gfx: Phaser.GameObjects.Graphics;
     x: number; y: number;
-    velX: number;
+    velX: number; velY: number;
+    radius: number;
     damage: number;
     expiresAt: number;
   }> = [];
@@ -186,6 +192,10 @@ export class MissionScene extends Phaser.Scene {
     }
     this.load.json('hero1_walk_cycle_meta', '_meta/hero1_walk_cycle.asset.json');
     this.load.json('hero1attack_meta', '_meta/hero1attack.asset.json');
+    // Forest parallax background layers
+    this.load.image('forest_l3', 'backgrounds/forest_l3.webp');
+    this.load.image('forest_l2', 'backgrounds/forest_l2.webp');
+    this.load.image('forest_l1', 'backgrounds/forest_l1.webp');
   }
 
   create(): void {
@@ -311,7 +321,7 @@ export class MissionScene extends Phaser.Scene {
     const biome = this._getBiome();
 
     // ── Background ────────────────────────────────────────
-    this._drawBackground(biome);
+    this._buildParallaxBg();
 
     // ── Ground ────────────────────────────────────────────
     this.groundGroup = this.physics.add.staticGroup();
@@ -322,6 +332,7 @@ export class MissionScene extends Phaser.Scene {
     this._buildTerrain(biome);
     this._buildObstacles(biome);
     this._buildMovingPlatforms(biome);
+    this._buildForegroundDeco();
 
     // ── Enemies ───────────────────────────────────────────
     this._spawnEnemies();
@@ -397,6 +408,7 @@ export class MissionScene extends Phaser.Scene {
 
   update(): void {
     if (this.missionComplete) return;
+    this._updateParallax();
 
     const body = this.hero.body!;
 
@@ -613,21 +625,23 @@ export class MissionScene extends Phaser.Scene {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i]!;
       p.x += p.velX * dt;
+      p.y += p.velY * dt;
 
-      if (now >= p.expiresAt || p.x < 0 || p.x > WORLD_W) {
+      if (now >= p.expiresAt || p.x < 0 || p.x > WORLD_W || p.y > WORLD_H) {
         p.gfx.destroy();
         this.projectiles.splice(i, 1);
         continue;
       }
 
-      // Redraw as a glowing orb
+      // Redraw as a glowing orb — size scales with p.radius
+      const r = p.radius;
       p.gfx.clear();
       p.gfx.fillStyle(0xff4400, 0.35);
-      p.gfx.fillCircle(p.x, p.y, 13);
+      p.gfx.fillCircle(p.x, p.y, r * 1.85);
       p.gfx.fillStyle(0xff7733, 1);
-      p.gfx.fillCircle(p.x, p.y, 7);
+      p.gfx.fillCircle(p.x, p.y, r);
       p.gfx.fillStyle(0xffdd88, 0.9);
-      p.gfx.fillCircle(p.x, p.y, 3);
+      p.gfx.fillCircle(p.x, p.y, r * 0.43);
 
       // Hero collision
       if (now >= this.heroInvincibleUntil) {
@@ -687,6 +701,86 @@ export class MissionScene extends Phaser.Scene {
       case 'skydock': return { sky: 0x223355, ground: 0x445577, groundEdge: 0x6688aa, groundDark: 0x334466, platFill: 0x556688, platEdge: 0x7799bb, name: 'skydock' };
       default:        return { sky: 0x1a2a1a, ground: 0x336633, groundEdge: 0x44aa44, groundDark: 0x224422, platFill: 0x664422, platEdge: 0x886644, name: 'wild' };
     }
+  }
+
+  private _buildParallaxBg(): void {
+    const tileScale = WORLD_H / 1536;
+
+    // L3: Full scene — sky, mountains, airships, ruins (furthest back)
+    this.bgL3 = this.add.tileSprite(0, 0, 1920, WORLD_H, 'forest_l3')
+      .setOrigin(0, 0)
+      .setScrollFactor(0)
+      .setDepth(-30);
+    this.bgL3.setTileScale(tileScale);
+
+    // L2: Mid-layer tree (between background and terrain)
+    this.bgL2 = this.add.tileSprite(0, 0, 1920, WORLD_H, 'forest_l2')
+      .setOrigin(0, 0)
+      .setScrollFactor(0)
+      .setDepth(-20);
+    this.bgL2.setTileScale(tileScale);
+
+    // L1: Near-background layer — rocks, gears, side trees (behind terrain and characters)
+    this.bgL1 = this.add.tileSprite(0, 0, 1920, WORLD_H, 'forest_l1')
+      .setOrigin(0, 0)
+      .setScrollFactor(0)
+      .setDepth(-10);
+    this.bgL1.setTileScale(tileScale);
+  }
+
+  private _buildForegroundDeco(): void {
+    // Spread elements across a slightly wider-than-world X range to cover
+    // the extra drift introduced by scrollFactor > 1 at max camera scroll.
+    const spreadX = WORLD_W * 1.15;
+    const seedBase = this._hashString(this.context.missionId + '_fg');
+
+    for (let i = 0; i < 35; i++) {
+      const wx = this._pseudoRandom(seedBase + i * 7) * spreadX;
+      const wy = WORLD_H - 10 - this._pseudoRandom(seedBase + i * 3) * 45;
+      const kind = Math.floor(this._pseudoRandom(seedBase + i * 11) * 3);
+      const alpha = 0.55 + this._pseudoRandom(seedBase + i * 5) * 0.3;
+
+      const g = this.add.graphics()
+        .setScrollFactor(1.15)
+        .setDepth(2);
+
+      if (kind === 0) {
+        // Tall grass cluster
+        g.lineStyle(1, 0x2a3d1a, alpha);
+        for (let b = -2; b <= 2; b++) {
+          const h = 35 + this._pseudoRandom(seedBase + i + b) * 40;
+          const lean = b * 5 + (this._pseudoRandom(i * 3 + b) - 0.5) * 8;
+          g.lineBetween(wx + b * 4, wy, wx + b * 4 + lean, wy - h);
+        }
+      } else if (kind === 1) {
+        // Fern silhouette
+        g.lineStyle(1, 0x1e3320, alpha);
+        const h = 50 + this._pseudoRandom(seedBase + i * 2) * 35;
+        g.lineBetween(wx, wy, wx, wy - h);
+        for (let f = 1; f <= 5; f++) {
+          const fy = wy - (h * f / 5.5);
+          const fl = (6 - f) * 5;
+          g.lineBetween(wx, fy, wx - fl, fy - 7);
+          g.lineBetween(wx, fy, wx + fl, fy - 7);
+        }
+      } else {
+        // Low bush silhouette
+        g.fillStyle(0x1e3a18, alpha * 0.7);
+        const bw = 25 + this._pseudoRandom(seedBase + i * 4) * 20;
+        const bh = 18 + this._pseudoRandom(seedBase + i * 6) * 14;
+        g.fillEllipse(wx, wy - bh / 2, bw, bh);
+        g.lineStyle(1, 0x2d4f22, alpha);
+        g.strokeEllipse(wx, wy - bh / 2, bw, bh);
+      }
+    }
+  }
+
+  private _updateParallax(): void {
+    const scrollX = this.cameras.main.scrollX;
+    this.bgL3.tilePositionX = scrollX * 0.05;
+    this.bgL2.tilePositionX = scrollX * 0.25;
+    this.bgL1.tilePositionX = scrollX * 0.6;
+    // fgDeco elements use setScrollFactor(1.15) — Phaser handles drift automatically
   }
 
   private _drawBackground(biome: ReturnType<typeof this._getBiome>): void {
@@ -846,14 +940,34 @@ export class MissionScene extends Phaser.Scene {
     gfx.closePath();
     gfx.fillPath();
 
-    // Top edge line (grass/surface edge)
-    gfx.lineStyle(3, biome.groundEdge, 1);
-    gfx.beginPath();
-    gfx.moveTo(0, this.heightMap[0]!);
-    for (let col = 1; col < TERRAIN_COLS; col++) {
-      gfx.lineTo(col * COL_W, this.heightMap[col]!);
+    // Cross-hatch texture strip in the top ~38px of the terrain bulk
+    const hatch = this.add.graphics();
+    hatch.lineStyle(1, biome.groundEdge, 0.13);
+    for (let col = 0; col < TERRAIN_COLS - 1; col++) {
+      if (this._pseudoRandom(col * 17 + 3) > 0.45) continue;
+      const x0 = col * COL_W;
+      const surfY = this.heightMap[col]!;
+      for (let pass = 0; pass < 3; pass++) {
+        const yOff = 6 + pass * 11;
+        hatch.lineBetween(x0 + 2, surfY + yOff, x0 + 10, surfY + yOff + 8);
+      }
     }
-    gfx.strokePath();
+
+    // Top edge — multi-stroke "comic ink" line
+    const edgePath = new Phaser.Curves.Path(0, this.heightMap[0]!);
+    for (let col = 1; col < TERRAIN_COLS; col++) {
+      edgePath.lineTo(col * COL_W, this.heightMap[col]!);
+    }
+    const edgeGfx = this.add.graphics();
+    // Pass 1 — wide soft underglow (ink bleed)
+    edgeGfx.lineStyle(7, biome.groundEdge, 0.12);
+    edgePath.draw(edgeGfx);
+    // Pass 2 — main ink line
+    edgeGfx.lineStyle(2, biome.groundEdge, 1.0);
+    edgePath.draw(edgeGfx);
+    // Pass 3 — bright surface highlight
+    edgeGfx.lineStyle(1, 0xffffff, 0.18);
+    edgePath.draw(edgeGfx);
 
     // Physics bodies: full-height rectangles from the surface down to the world
     // floor so the hero can't fall through even at high fall speeds.
@@ -865,16 +979,41 @@ export class MissionScene extends Phaser.Scene {
       this.groundGroup.add(body);
     }
 
-    // Surface detail: tiny grass tufts / rubble marks along the top
-    const detailGfx = this.add.graphics();
-    detailGfx.lineStyle(1, biome.groundEdge, 0.5);
-    for (let col = 1; col < TERRAIN_COLS - 1; col++) {
-      if (this._pseudoRandom(col * 17 + 11) > 0.5) continue;
-      const bx = col * COL_W + this._pseudoRandom(col * 7) * COL_W;
-      const by = this.heightMap[col]!;
-      const tuftH = 4 + this._pseudoRandom(col * 31) * 8;
-      detailGfx.lineBetween(bx, by, bx - 3, by - tuftH);
-      detailGfx.lineBetween(bx, by, bx + 3, by - tuftH);
+    // Surface detail: grass blades, ferns, and root bumps along the terrain top
+    for (let col = 2; col < TERRAIN_COLS - 2; col++) {
+      if (this._pseudoRandom(col * 31 + 11) > 0.38) continue;
+      const cx = col * COL_W + COL_W / 2;
+      const baseY = this.heightMap[col]!;
+      const type = Math.floor(this._pseudoRandom(col * 7 + 2) * 3);
+      const decoGfx = this.add.graphics();
+
+      if (type === 0) {
+        // Tall grass blades — 3 thin strokes fanning out
+        decoGfx.lineStyle(1, biome.groundEdge, 0.55);
+        for (let b = -1; b <= 1; b++) {
+          const lean = b * 4 + (this._pseudoRandom(col + b * 13) - 0.5) * 3;
+          const h = 8 + this._pseudoRandom(col * 3 + b) * 10;
+          decoGfx.lineBetween(cx + b * 3, baseY, cx + b * 3 + lean, baseY - h);
+        }
+      } else if (type === 1) {
+        // Fern — central stem + 4 small side fronds
+        decoGfx.lineStyle(1, biome.groundEdge, 0.5);
+        const h = 12 + this._pseudoRandom(col * 5) * 8;
+        decoGfx.lineBetween(cx, baseY, cx, baseY - h);
+        for (let f = 1; f <= 4; f++) {
+          const fy = baseY - (h * f / 4.5);
+          const fl = (5 - f) * 3;
+          decoGfx.lineBetween(cx, fy, cx - fl, fy - 4);
+          decoGfx.lineBetween(cx, fy, cx + fl, fy - 4);
+        }
+      } else {
+        // Root bump — small arc above ground
+        decoGfx.lineStyle(2, biome.groundDark, 0.5);
+        const bw = 10 + this._pseudoRandom(col * 9) * 8;
+        decoGfx.beginPath();
+        decoGfx.arc(cx, baseY, bw / 2, Math.PI, 0, false);
+        decoGfx.strokePath();
+      }
     }
 
     // ── Jump physics constants (must match MissionScene update values) ──────
@@ -932,12 +1071,26 @@ export class MissionScene extends Phaser.Scene {
       this.placedPlatforms.push({ minX: pMinX, maxX: pMaxX, py, pw });
 
       const platGfx = this.add.graphics();
-      platGfx.fillStyle(biome.platFill, 1);
-      platGfx.fillRoundedRect(px - pw / 2, py, pw, PLAT_H, 4);
-      platGfx.lineStyle(2, biome.platEdge, 1);
-      platGfx.strokeRoundedRect(px - pw / 2, py, pw, PLAT_H, 4);
-      platGfx.fillStyle(0x000000, 0.15);
-      platGfx.fillRect(px - pw / 2 + 4, py + PLAT_H, pw - 8, 6);
+      // Drop shadow
+      platGfx.fillStyle(0x000000, 0.25);
+      platGfx.fillRoundedRect(px - pw / 2 + 3, py + 4, pw, PLAT_H, 3);
+      // Front face — darker, gives 3D slab depth
+      platGfx.fillStyle(biome.groundDark, 1.0);
+      platGfx.fillRect(px - pw / 2, py + PLAT_H - 5, pw, 7);
+      // Main top surface
+      platGfx.fillStyle(biome.platFill, 1.0);
+      platGfx.fillRoundedRect(px - pw / 2, py, pw, PLAT_H - 1, 3);
+      // Top highlight
+      platGfx.lineStyle(1, 0xffffff, 0.22);
+      platGfx.lineBetween(px - pw / 2 + 5, py + 2, px + pw / 2 - 5, py + 2);
+      // Plank division lines
+      platGfx.lineStyle(1, biome.groundDark, 0.35);
+      const thirds = pw / 3;
+      platGfx.lineBetween(px - pw / 2 + thirds,     py + 3, px - pw / 2 + thirds,     py + PLAT_H - 4);
+      platGfx.lineBetween(px - pw / 2 + thirds * 2, py + 3, px - pw / 2 + thirds * 2, py + PLAT_H - 4);
+      // Outline
+      platGfx.lineStyle(2, biome.platEdge, 1.0);
+      platGfx.strokeRoundedRect(px - pw / 2, py, pw, PLAT_H, 3);
       const platBody = this.add.zone(px, py + PLAT_H / 2, pw, PLAT_H);
       this.platformGroup.add(platBody);
       return true;
@@ -1035,6 +1188,22 @@ export class MissionScene extends Phaser.Scene {
       gfx.lineStyle(1, biome.groundEdge, 0.4);
       gfx.strokeRect(x - w / 2, top - 10, cW, 10);
       gfx.strokeRect(x + w / 2 - cW, top - 10, cW, 10);
+      // Masonry joints — horizontal lines every 20px
+      gfx.lineStyle(1, biome.groundDark, 0.45);
+      for (let yLine = top + 20; yLine < top + h; yLine += 20) {
+        gfx.lineBetween(x - w / 2, yLine, x + w / 2, yLine);
+      }
+      // Running bond offset on alternating rows
+      gfx.lineStyle(1, biome.groundDark, 0.25);
+      for (let yLine = top + 10; yLine < top + h; yLine += 20) {
+        gfx.lineBetween(x, yLine, x + w / 2, yLine);
+      }
+      // Diagonal crack detail on ~60% of pillars
+      if (this._pseudoRandom(x * 0.007 + 3) > 0.4) {
+        const crackX = x - w / 2 + w * (0.3 + this._pseudoRandom(x) * 0.4);
+        gfx.lineStyle(1, biome.groundDark, 0.6);
+        gfx.lineBetween(crackX, top + 8, crackX - 5, top + h * 0.4);
+      }
 
       // Physics zone — solid from all sides
       const zone = this.add.zone(x, top + h / 2, w, h);
@@ -1093,12 +1262,27 @@ export class MissionScene extends Phaser.Scene {
 
       this.placedPlatforms.push({ minX, maxX, py, pw });
 
-      // Visual — white outline + arrow indicators to signal it moves
+      // Visual — layered platform + white outline + arrow indicators to signal it moves
       const gfx = this.add.graphics();
-      gfx.fillStyle(biome.platFill, 1);
-      gfx.fillRoundedRect(-pw / 2, 0, pw, PLAT_H, 4);
+      // Drop shadow
+      gfx.fillStyle(0x000000, 0.25);
+      gfx.fillRoundedRect(-pw / 2 + 3, 4, pw, PLAT_H, 3);
+      // Front face
+      gfx.fillStyle(biome.groundDark, 1.0);
+      gfx.fillRect(-pw / 2, PLAT_H - 5, pw, 7);
+      // Main surface
+      gfx.fillStyle(biome.platFill, 1.0);
+      gfx.fillRoundedRect(-pw / 2, 0, pw, PLAT_H - 1, 3);
+      // Top highlight
+      gfx.lineStyle(1, 0xffffff, 0.22);
+      gfx.lineBetween(-pw / 2 + 5, 2, pw / 2 - 5, 2);
+      // Plank lines
+      gfx.lineStyle(1, biome.groundDark, 0.35);
+      gfx.lineBetween(-pw / 6, 3, -pw / 6, PLAT_H - 4);
+      gfx.lineBetween(pw / 6, 3, pw / 6, PLAT_H - 4);
+      // White outline + arrows
       gfx.lineStyle(2, 0xffffff, 0.35);
-      gfx.strokeRoundedRect(-pw / 2, 0, pw, PLAT_H, 4);
+      gfx.strokeRoundedRect(-pw / 2, 0, pw, PLAT_H, 3);
       gfx.fillStyle(0xffffff, 0.2);
       gfx.fillTriangle(-pw / 2 + 8, 9, -pw / 2 + 18, 4, -pw / 2 + 18, 14);
       gfx.fillTriangle(pw / 2 - 8, 9, pw / 2 - 18, 4, pw / 2 - 18, 14);
@@ -1121,14 +1305,17 @@ export class MissionScene extends Phaser.Scene {
     const smallEnemyVisual  = this._getEnemyVisualConfig('spiderwalkcycle_meta');
 
     // Scale counts with danger level (1–5)
-    const smallCount  = Math.min(danger + 1, 5);
-    const mediumCount = Math.max(0, danger - 1);
-    const largeCount  = Math.max(0, danger - 3);
-    const total = smallCount + mediumCount + largeCount;
+    const smallCount        = Math.min(danger + 1, 5);
+    const mediumCount       = Math.max(0, danger - 1);
+    const largeCount        = Math.max(0, danger - 3);
+    const flyingDasherCount = Math.min(Math.max(0, danger - 1), 3); // 1 at danger 2, up to 3 at danger 4+
+    const flyingShooterCount= Math.min(Math.max(0, danger - 2), 3); // 1 at danger 3, up to 3 at danger 5+
+    const total = smallCount + mediumCount + largeCount + flyingDasherCount + flyingShooterCount;
     if (total === 0) return;
 
     const spacing = (WORLD_W - 400) / (total + 1);
     let slot = 0;
+    let lastPlacedX = 200;
 
     const place = (
       EnemyType: new (s: Phaser.Scene, c: { x: number; patrolRange: number; visual?: EnemyVisualConfig }, g: (x: number) => number) => Enemy,
@@ -1151,12 +1338,52 @@ export class MissionScene extends Phaser.Scene {
       const enemy = new EnemyType(this, { x, patrolRange, visual }, gt);
       this.enemies.push(enemy);
       this.enemyGroup.add(enemy.gameObject);
+      lastPlacedX = x;
       slot++;
     };
 
-    for (let i = 0; i < smallCount;  i++) place(SmallEnemy, smallEnemyVisual);
-    for (let i = 0; i < mediumCount; i++) place(MediumEnemy, mediumEnemyVisual);
-    for (let i = 0; i < largeCount;  i++) place(LargeEnemy, largeEnemyVisual);
+    // Place a flying enemy beside the previously placed enemy instead of its
+    // own evenly-spaced slot, creating a visible "pair" in the level.
+    const placePaired = (
+      EnemyType: new (s: Phaser.Scene, c: { x: number; patrolRange: number; visual?: EnemyVisualConfig }, g: (x: number) => number) => Enemy,
+    ) => {
+      const offset = this._pseudoRandom(slot * 19 + 3) > 0.5 ? 160 : -160;
+      const x      = Phaser.Math.Clamp(lastPlacedX + offset, 200, WORLD_W - 200);
+      const enemy  = new EnemyType(this, { x, patrolRange: 60 }, gt);
+      this.enemies.push(enemy);
+      this.enemyGroup.add(enemy.gameObject);
+      // slot is NOT incremented — the paired enemy shares a spacing slot
+    };
+
+    // Build a flat list of all enemies to spawn, then shuffle deterministically
+    // so ground and flying types are mixed across the level instead of clumped.
+    type SpawnEntry = [
+      new (s: Phaser.Scene, c: { x: number; patrolRange: number; visual?: EnemyVisualConfig }, g: (x: number) => number) => Enemy,
+      EnemyVisualConfig | undefined,
+    ];
+    const spawnList: SpawnEntry[] = [
+      ...Array(smallCount).fill([SmallEnemy, smallEnemyVisual]),
+      ...Array(mediumCount).fill([MediumEnemy, mediumEnemyVisual]),
+      ...Array(largeCount).fill([LargeEnemy, largeEnemyVisual]),
+      ...Array(flyingDasherCount).fill([FlyingDasher, undefined]),
+      ...Array(flyingShooterCount).fill([FlyingShooter, undefined]),
+    ];
+    // Fisher-Yates shuffle using pseudoRandom so the mix is stable per seed
+    for (let i = spawnList.length - 1; i > 0; i--) {
+      const j = Math.floor(this._pseudoRandom(i * 37 + danger * 11) * (i + 1));
+      [spawnList[i], spawnList[j]] = [spawnList[j]!, spawnList[i]!];
+    }
+    for (let idx = 0; idx < spawnList.length; idx++) {
+      const [EnemyType, visual] = spawnList[idx]!;
+      const isFlying = EnemyType === FlyingDasher || EnemyType === FlyingShooter;
+      // ~40% chance a flying enemy pairs with the previous enemy (if one exists)
+      const pair = isFlying && idx > 0 && this._pseudoRandom(idx * 53 + danger * 7) < 0.4;
+      if (pair) {
+        placePaired(EnemyType as typeof FlyingDasher);
+      } else {
+        place(EnemyType, visual);
+      }
+    }
   }
 
   private _getEnemyVisualConfig(cacheKey: string): EnemyVisualConfig | undefined {
@@ -1235,11 +1462,26 @@ export class MissionScene extends Phaser.Scene {
   }
 
   private _spawnProjectile(data: PendingProjectile): void {
+    const SPEED = 340;
+    let velX: number, velY: number;
+    if (data.dirY !== undefined) {
+      // Aimed shot: build a proper velocity vector from the normalised direction
+      const nx  = data.dirX;   // ±1
+      const ny  = data.dirY;
+      const len = Math.sqrt(nx * nx + ny * ny) || 1;
+      velX = (nx / len) * SPEED;
+      velY = (ny / len) * SPEED;
+    } else {
+      velX = data.dirX * SPEED;
+      velY = 0;
+    }
     this.projectiles.push({
       gfx:       this.add.graphics(),
       x:         data.x,
       y:         data.y,
-      velX:      data.dirX * 340,
+      velX,
+      velY,
+      radius:    data.radius ?? 7,
       damage:    data.damage,
       expiresAt: this.time.now + 3000,
     });

@@ -39,7 +39,7 @@ function createStartingHeroes() {
       name: 'Kael',
       heroClass: 'skirmisher',
       stats: { combat: 7, exploration: 4, diplomacy: 3 },
-      portraitId: 'hero_portrait_skirmisher',
+      portraitId: 'kael_the_iron_skirmisher',
     }),
     createDefaultHero({
       id: 'hero_lyra',
@@ -49,7 +49,7 @@ function createStartingHeroes() {
       bonusArray: [
         { stat: 'exploration', modifier: 2, type: 'flat' },
       ],
-      portraitId: 'hero_portrait_scout',
+      portraitId: 'lyra_the_vellum_scout',
     }),
   ];
 }

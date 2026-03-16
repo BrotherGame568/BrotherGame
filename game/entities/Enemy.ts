@@ -5,6 +5,11 @@
  *
  * Attack types:
  *   'dash'   — telegraphs with an orange arrow, then lunges at the player
+ *   'leap'   — telegraphs with a green arc indicator, then jumps toward the player
+ *
+ * Flying enemies (flying: true in EnemyStats) hover above terrain instead of
+ * walking on it. Gravity is disabled; a sinusoidal bob keeps them airborne.
+ * FlyingDasher uses 'dash'; FlyingShooter uses 'ranged'.
  *   'ranged' — telegraphs with a purple expanding ring, then fires a projectile
  *   'none'   — patrol only
  *
@@ -49,7 +54,7 @@ export interface EnemyStats {
   bodyW:             number;
   bodyH:             number;
   // ── Attack ────────────────────────────────────────────
-  attackType:        'dash' | 'ranged' | 'none';
+  attackType:        'dash' | 'leap' | 'ranged' | 'none';
   /** Horizontal distance (px) that triggers the attack sequence. */
   detectionRange:    number;
   /** How long the telegraph lasts (ms) — player's window to dodge. */
@@ -60,13 +65,26 @@ export interface EnemyStats {
   attackCooldown:    number;
   /** Damage dealt (dash contact during lunge; projectile hit). */
   attackDamage:      number;
+  // ── Flight ────────────────────────────────────────────
+  /** If true the enemy hovers above terrain instead of walking on it. */
+  flying?:      boolean;
+  /** How many px above the terrain surface to hover. Default 120. */
+  hoverOffset?: number;
+  /** For ranged enemies: number of shots per attack burst. Default 1. */
+  burstCount?:      number;
+  /** Visual radius of the fired projectile in px. Default 7. */
+  projectileRadius?: number;
 }
 
 export interface PendingProjectile {
   x: number;
   y: number;
   dirX: 1 | -1;
+  /** Normalised Y component of the aimed direction. Undefined = horizontal shot. */
+  dirY?: number;
   damage: number;
+  /** Visual radius of the projectile in px. Default 7. */
+  radius?: number;
 }
 
 type AttackState = 'patrol' | 'telegraph' | 'attacking' | 'cooldown';
@@ -106,6 +124,10 @@ export abstract class Enemy {
   private attackDir: 1 | -1 = 1;
   private telegraphGfx: Phaser.GameObjects.Graphics | null = null;
   private telegraphStartTime = 0;
+  private leapStartTime = 0;
+  private _lastHeroY    = 0;
+  private burstQueue:  PendingProjectile[] = [];
+  private burstNextAt  = 0;
 
   /** Set when this enemy fires a ranged shot. The host scene reads and clears it. */
   public pendingProjectile: PendingProjectile | null = null;
@@ -166,11 +188,28 @@ export abstract class Enemy {
     body.setGravityY(1400);
     body.updateFromGameObject();
 
+    if (stats.flying) {
+      const hoverY = groundY - (stats.hoverOffset ?? 120);
+      this.sprite.y        = hoverY + this.groundOffsetY;
+      body.y               = hoverY - body.height + this.bodyGroundOffsetY;
+      body.prev.y          = body.y;
+      body.prevFrame.y     = body.y;
+      body.setAllowGravity(false);
+    }
+
     this.hpBar = scene.add.graphics();
   }
 
   // ── Per-frame update ─────────────────────────────────────────
-  update(heroX: number, _heroY: number): void {
+  update(heroX: number, heroY: number): void {
+    this._lastHeroY = heroY;
+
+    // Drain burst-fire queue — emit one shot per 160 ms interval
+    if (this.burstQueue.length > 0 && this.scene.time.now >= this.burstNextAt) {
+      this.pendingProjectile = this.burstQueue.shift()!;
+      this.burstNextAt = this.scene.time.now + 160;
+    }
+
     const body    = this.sprite.body as Phaser.Physics.Arcade.Body;
     const groundY = this.getGroundY(this.sprite.x);
     const groundedSpriteY = groundY + this.groundOffsetY;
@@ -186,27 +225,45 @@ export abstract class Enemy {
     // to be at the same height on the other side — effectively flying over the gap.
     // Stricter re-ground: during an active dash the enemy must physically be AT or BELOW
     // the terrain surface (no 1 px margin) so they can't skip over valleys.
-    const isActiveDash = !inKnockback && this.attackState === 'attacking' && this.stats.attackType === 'dash';
-    const regroundFloor = isActiveDash ? groundedSpriteY : groundedSpriteY - 1;
-    if (!this.isGrounded && body.velocity.y >= 0 && this.sprite.y >= regroundFloor) {
-      this.isGrounded = true;
-    }
-    if (!inKnockback && this.isGrounded && (body.velocity.y < -50 || this.sprite.y < groundedSpriteY - 4)) {
-      this.isGrounded = false;
-    }
-    // Enemies have no platform colliders, so the only thing that can set body.blocked.down
-    // is a column top or world bounds. We always want terrain-following to win, so the
-    // !body.blocked.down guard is intentionally omitted here (unlike the hero).
-    // During an active dash, force-pin to terrain even if isGrounded is false — same
-    // unconditional snap that walking gets, so the dash follows slopes/cliffs instead of
-    // continuing at the same height through open air.
-    if (isActiveDash) this.isGrounded = true;
-    if (this.isGrounded) {
-      this.sprite.y = groundedSpriteY;
-      body.y = groundY - body.height + this.bodyGroundOffsetY;
-      body.prev.y = body.y;
-      body.prevFrame.y = body.y;
-      body.velocity.y = 0;
+    if (!this.stats.flying) {
+      // ── Ground-following ───────────────────────────────────────────────────
+      // check 2 is skipped during knockback (arc moves sprite above ground).
+      // Dash force-pins so fast lateral movement follows slopes/cliffs.
+      // Leap skips the un-grounding check (arc offsets sprite.y each frame).
+      const isActiveDash = !inKnockback && this.attackState === 'attacking' && this.stats.attackType === 'dash';
+      const isLeaping    = !inKnockback && this.attackState === 'attacking' && this.stats.attackType === 'leap';
+      const regroundFloor = isActiveDash ? groundedSpriteY : groundedSpriteY - 1;
+      if (!this.isGrounded && body.velocity.y >= 0 && this.sprite.y >= regroundFloor) {
+        this.isGrounded = true;
+      }
+      if (!inKnockback && !isLeaping && this.isGrounded && (body.velocity.y < -50 || this.sprite.y < groundedSpriteY - 4)) {
+        this.isGrounded = false;
+      }
+      if (isActiveDash) this.isGrounded = true;
+      if (this.isGrounded) {
+        this.sprite.y = groundedSpriteY;
+        body.y = groundY - body.height + this.bodyGroundOffsetY;
+        body.prev.y = body.y;
+        body.prevFrame.y = body.y;
+        body.velocity.y = 0;
+      }
+    } else {
+      // ── Hover ──────────────────────────────────────────────────────────────
+      // While dive-attacking, release the Y pin so the body swoops toward the
+      // hero. For all other states, hard-pin to hover height with a sinusoidal bob.
+      const isActiveDive = !inKnockback && this.attackState === 'attacking' && this.stats.attackType === 'dash';
+      if (!isActiveDive) {
+        const hoverBaseY  = groundY - (this.stats.hoverOffset ?? 120);
+        const bob         = Math.sin(this.scene.time.now * 0.002) * 5;
+        const targetSpriteY = hoverBaseY + this.groundOffsetY + bob;
+        // Lerp toward hover height so there is no snap after a dive ends
+        this.sprite.y    = Phaser.Math.Linear(this.sprite.y, targetSpriteY, 0.15);
+        // Body tracks sprite; bob cancels in the derivation so body doesn't oscillate
+        body.y           = this.sprite.y - bob - body.height + this.bodyGroundOffsetY;
+        body.prev.y      = body.y;
+        body.prevFrame.y = body.y;
+        body.velocity.y  = 0;
+      }
     }
 
     // Visual knockback arc — purely a sprite offset applied after the terrain pin.
@@ -223,13 +280,21 @@ export abstract class Enemy {
       }
     }
 
+    // Leap attack: parabolic visual arc. Body stays pinned to terrain so slope
+    // following keeps working; only sprite.y is offset, matching how knockback works.
+    if (this.attackState === 'attacking' && this.stats.attackType === 'leap') {
+      const t = Math.min(1, (this.scene.time.now - this.leapStartTime) / this.stats.attackDuration);
+      this.sprite.y -= 80 * 4 * t * (1 - t); // 80 px peak height, returns to 0 at t=1
+    }
+
     // inKnockback is already computed above
     if (inKnockback) {
       body.setVelocityX(this.knockbackVelX);
       // Interrupt any active telegraph or attack
       if (this.attackState === 'telegraph' || this.attackState === 'attacking') {
         this._clearTelegraph();
-        this.attackState     = 'cooldown';
+        this.burstQueue       = [];
+        this.attackState      = 'cooldown';
         this.attackStateUntil = this.scene.time.now + this.stats.attackCooldown * 0.5;
       }
     } else {
@@ -283,7 +348,7 @@ export abstract class Enemy {
           this.attackState      = 'cooldown';
           this.attackStateUntil = now + this.stats.attackCooldown;
         }
-        // Dash: velocity set in _executeAttack continues naturally
+        // Dash/leap: velocity set in _executeAttack continues naturally
         break;
 
       case 'cooldown':
@@ -300,7 +365,10 @@ export abstract class Enemy {
 
   private _showTelegraph(): void {
     this.telegraphGfx = this.scene.add.graphics();
-    this.sprite.setTint(this.stats.attackType === 'dash' ? 0xff7700 : 0xaa44ff);
+    const tint = this.stats.attackType === 'dash' ? 0xff7700
+               : this.stats.attackType === 'leap' ? 0x88ff00
+               : 0xaa44ff;
+    this.sprite.setTint(tint);
   }
 
   private _clearTelegraph(): void {
@@ -337,6 +405,15 @@ export abstract class Enemy {
         arrowBaseX, sy - 9,
         arrowBaseX, sy + 9,
       );
+    } else if (this.stats.attackType === 'leap') {
+      // Landing-zone shadow: a faint ellipse on the ground where the enemy will land.
+      // Estimated from launch velocity (vX=380, arc≈0.8s).
+      const landX  = sx + this.attackDir * 300;
+      const landY  = this.sprite.y;
+      const alpha  = 0.2 + progress * 0.45;
+      const rx     = 12 + progress * 10;
+      this.telegraphGfx.fillStyle(0x88ff00, alpha);
+      this.telegraphGfx.fillEllipse(landX, landY, rx * 2, rx * 0.45);
     } else {
       // Expanding purple ring around enemy
       const maxR   = 55;
@@ -364,15 +441,47 @@ export abstract class Enemy {
       const dashDir: 1 | -1 = heroX >= this.sprite.x ? 1 : -1;
       this.direction = dashDir;
       this.sprite.body!.setVelocityX(dashDir * 520);
+      if (this.stats.flying) {
+        // Dive toward the hero's Y position
+        const dy = this._lastHeroY - this.centerY;
+        this.sprite.body!.setVelocityY(Phaser.Math.Clamp(dy * 1.8, -380, 380));
+      }
+    } else if (this.stats.attackType === 'leap') {
+      const leapDir: 1 | -1 = heroX >= this.sprite.x ? 1 : -1;
+      this.direction = leapDir;
+      this.leapStartTime = this.scene.time.now;
+      this.sprite.body!.setVelocityX(leapDir * 520);
     } else if (this.stats.attackType === 'ranged') {
       const projDir: 1 | -1 = heroX >= this.sprite.x ? 1 : -1;
       this.direction = projDir;
-      this.pendingProjectile = {
-        x:      this.sprite.x + projDir * (this.stats.spriteW / 2 + 8),
-        y:      this.centerY,
-        dirX:   projDir,
-        damage: this.stats.attackDamage,
-      };
+      const fireX  = this.sprite.x + projDir * (this.stats.spriteW / 2 + 8);
+      const fireY  = this.centerY;
+      const dx     = heroX - fireX;
+      const dy     = this._lastHeroY - fireY;
+      const len    = Math.sqrt(dx * dx + dy * dy) || 1;
+      const ndx    = dx / len;
+      const ndy    = dy / len;
+      const count  = this.stats.burstCount ?? 1;
+      const projRadius = this.stats.projectileRadius;
+      if (count <= 1) {
+        this.pendingProjectile = {
+          x: fireX, y: fireY, dirX: projDir, dirY: ndy,
+          damage: this.stats.attackDamage, radius: projRadius,
+        };
+      } else {
+        // Spread the burst evenly around the aim direction (±0.14 rad between shots)
+        this.burstQueue = [];
+        for (let i = 0; i < count; i++) {
+          const spread = (i - (count - 1) / 2) * 0.14;
+          const bdy    = ndy + spread;
+          const bLen   = Math.sqrt(ndx * ndx + bdy * bdy) || 1;
+          this.burstQueue.push({
+            x: fireX, y: fireY, dirX: projDir,
+            dirY: bdy / bLen, damage: this.stats.attackDamage, radius: projRadius,
+          });
+        }
+        this.burstNextAt = this.scene.time.now; // first shot fires immediately
+      }
     }
   }
 
@@ -444,19 +553,26 @@ export abstract class Enemy {
 
   /** Returns higher damage when mid-dash so the lunge hurts more than a brush. */
   get contactDamage(): number {
-    return this.attackState === 'attacking' && this.stats.attackType === 'dash'
+    return this.attackState === 'attacking' &&
+      (this.stats.attackType === 'dash' || this.stats.attackType === 'leap')
       ? this.stats.attackDamage
       : 1;
   }
 
   destroy(): void {
     this._clearTelegraph();
+    this.burstQueue = [];
     this.hpBar.destroy();
-    // Fade out before destroying the sprite
+    if (this.stats.flying) {
+      // Re-enable gravity so the corpse falls to the ground
+      const body = this.sprite.body as Phaser.Physics.Arcade.Body;
+      body.setAllowGravity(true);
+      body.setVelocityY(-60); // small upward kick before falling
+    }
     this.scene.tweens.add({
       targets: this.sprite,
       alpha: 0,
-      duration: 150,
+      duration: this.stats.flying ? 700 : 150,
       onComplete: () => { this.sprite.destroy(); },
     });
   }
@@ -516,10 +632,10 @@ export class MediumEnemy extends Enemy {
       spriteH:    58,
       bodyW:      26,
       bodyH:      50,
-      attackType:        'dash',
+      attackType:        'leap',
       detectionRange:    280,
       telegraphDuration: 680,
-      attackDuration:    380,
+      attackDuration:    480,
       attackCooldown:    2600,
       attackDamage:      2,
     });
@@ -586,6 +702,7 @@ export class LargeEnemy extends Enemy {
       attackDuration:    150,
       attackCooldown:    3200,
       attackDamage:      2,
+      projectileRadius:  22,
     });
 
     // Start on idle immediately
@@ -604,5 +721,84 @@ export class LargeEnemy extends Enemy {
     } else {
       this.sprite.play('rootwalker_idle', true);
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Flying Dasher — airborne scout; swoops at the player
+// ─────────────────────────────────────────────────────────
+export class FlyingDasher extends Enemy {
+  constructor(
+    scene: Phaser.Scene,
+    config: EnemyConfig,
+    getGroundY: (worldX: number) => number,
+  ) {
+    super(scene, config, getGroundY, {
+      textureKey: 'flying_dasher',
+      maxHp: 2, moveSpeed: 65, spriteW: 52, spriteH: 34, bodyW: 34, bodyH: 20,
+      flying: true, hoverOffset: 180,
+      attackType: 'dash', detectionRange: 300,
+      telegraphDuration: 380, attackDuration: 280, attackCooldown: 2000, attackDamage: 1,
+    });
+  }
+
+  protected _drawSprite(gfx: Phaser.GameObjects.Graphics, cx: number, bottom: number): void {
+    const my = bottom - 12;
+    // Wings (swept back)
+    gfx.fillStyle(0x2a0a3a, 0.85);
+    gfx.fillTriangle(cx - 3, my, cx - 18, my - 9, cx + 2, my + 4);
+    gfx.fillTriangle(cx + 3, my, cx + 18, my - 9, cx - 2, my + 4);
+    // Body
+    gfx.fillStyle(0x6b2288, 1);
+    gfx.fillEllipse(cx, my, 24, 12);
+    // Eyes
+    gfx.fillStyle(0xff3300, 1);
+    gfx.fillCircle(cx - 5, my - 1, 2.5);
+    gfx.fillCircle(cx + 5, my - 1, 2.5);
+    gfx.fillStyle(0xffffff, 0.6);
+    gfx.fillCircle(cx - 4, my - 2, 1);
+    gfx.fillCircle(cx + 6, my - 2, 1);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Flying Shooter — hovering eye; fires projectiles
+// ─────────────────────────────────────────────────────────
+export class FlyingShooter extends Enemy {
+  constructor(
+    scene: Phaser.Scene,
+    config: EnemyConfig,
+    getGroundY: (worldX: number) => number,
+  ) {
+    super(scene, config, getGroundY, {
+      textureKey: 'flying_shooter',
+      maxHp: 2, moveSpeed: 40, spriteW: 48, spriteH: 48, bodyW: 32, bodyH: 32,
+      flying: true, hoverOffset: 220,
+      attackType: 'ranged', detectionRange: 380, burstCount: 3,
+      telegraphDuration: 750, attackDuration: 120, attackCooldown: 2800, attackDamage: 1,
+    });
+  }
+
+  protected _drawSprite(gfx: Phaser.GameObjects.Graphics, cx: number, bottom: number): void {
+    const my = bottom - 17;
+    // Outer glow ring
+    gfx.lineStyle(2, 0x44ffaa, 0.3);
+    gfx.strokeCircle(cx, my, 16);
+    // Body
+    gfx.fillStyle(0x081a10, 0.95);
+    gfx.fillCircle(cx, my, 14);
+    // Iris
+    gfx.fillStyle(0x1fbb66, 1);
+    gfx.fillCircle(cx, my, 9);
+    // Pupil
+    gfx.fillStyle(0x010d06, 1);
+    gfx.fillCircle(cx, my, 5);
+    // Glint
+    gfx.fillStyle(0xffffff, 0.8);
+    gfx.fillCircle(cx + 2, my - 2, 1.5);
+    // Iris veins
+    gfx.lineStyle(1, 0x16883d, 0.6);
+    gfx.beginPath(); gfx.moveTo(cx - 8, my - 2); gfx.lineTo(cx - 3, my + 2); gfx.strokePath();
+    gfx.beginPath(); gfx.moveTo(cx + 7, my - 3); gfx.lineTo(cx + 2, my + 3); gfx.strokePath();
   }
 }

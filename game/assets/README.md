@@ -43,7 +43,8 @@ game/assets/
 ├── sprites/        # Character, enemy, object, and item sprites
 ├── ui/             # HUD elements, buttons, panels, icons
 ├── backgrounds/    # World map and mission background art
-└── animations/     # Animation sheets or frames
+├── animations/     # Animation sheets or frames
+└── terrain_tiles/  # Normalized terrain hex tiles + generated atlases
 ```
 
 ---
