@@ -1,14 +1,21 @@
 /**
- * AirCombatScene.ts -- Top-down RTS air combat.
- * Owner: Architecture domain
+ * AirCombatScene.ts — Action-RPG / Tower Defense hybrid.
+ * Hero-led Siege with Persistent Base Defence.
  *
- * Controls:
- *   Left-click / drag  -> select unit / box-select
- *   Right-click        -> move (ground) or attack (enemy unit / base)
- *   A key              -> toggle attack-move mode for next right-click
- *   H key              -> hold position (selected units stand and fight)
- *   S key              -> stop (cancel current order)
- *   ESC                -> retreat
+ * OVERVIEW
+ *   The player controls a single hero in an overhead view.
+ *   • Defend your base (left) against incoming enemy waves.
+ *   • Siege the enemy Stronghold (right): breach the gate, destroy the Core.
+ *   • Two optional quest camps in the mid-field yield bonus resources.
+ *
+ * WIN    Destroy the enemy Stronghold Core.
+ * LOSE   Player base HP reaches 0.
+ *
+ * CONTROLS
+ *   WASD / Arrow keys  → move hero
+ *   Left-click         → move to point
+ *   Space              → dash (2 s cooldown)
+ *   ESC                → retreat
  */
 
 import Phaser from 'phaser';
@@ -19,75 +26,176 @@ import type { MissionResult }      from '@data/MissionContext';
 
 export const AIR_COMBAT_SCENE_KEY = 'AirCombatScene';
 
-// -- World ------------------------------------------------------------------
-const WORLD_W = 1920, WORLD_H = 1080;
-const AIR_BACKGROUND_TEXTURE_KEY = 'air_battle_background';
-const PLAYER_CITY_TEXTURE_KEY = 'air_player_city';
-const PLAYER_BASE_X = 160, ENEMY_BASE_X = WORLD_W - 160;
-const BASE_Y = WORLD_H / 2, BASE_W = 80, BASE_H = 130, BASE_HP = 800;
+// ── World ────────────────────────────────────────────────────────────────────
+const WORLD_W = 1920;
+const WORLD_H = 1080;
 
-// -- Unit stats -------------------------------------------------------------
-const UNIT_RADIUS     = 18;
-const ATTACK_RANGE    = 110;
-const ATTACK_COOLDOWN = 900;   // ms
+// ── Player base ──────────────────────────────────────────────────────────────
+const BASE_X   = 180;
+const BASE_Y   = WORLD_H / 2; // 540
+const BASE_HP  = 1000;
 
-const PLAYER_UNIT_HP    = 350;
-const PLAYER_UNIT_ATK   = 40;
-const PLAYER_UNIT_SPEED = 120;
+// ── Hero ─────────────────────────────────────────────────────────────────────
+const HERO_R       = 20;
+const HERO_SPEED   = 230;
+const HERO_HP      = 500;
+const HERO_ATK     = 55;
+const HERO_ATK_R   = 100;
+const HERO_ATK_CD  = 750;   // ms
+const DASH_DUR     = 180;   // ms
+const DASH_SPD_MUL = 3.5;
+const DASH_CD      = 2000;  // ms
 
-const ENEMY_UNIT_HP     = 65;
-const ENEMY_UNIT_ATK    = 9;
-const ENEMY_UNIT_SPEED  = 52;
+// ── Defence turrets ──────────────────────────────────────────────────────────
+const TURRET_R     = 14;
+const TURRET_HP    = 350;
+const TURRET_ATK   = 28;
+const TURRET_RANGE = 260;
+const TURRET_CD    = 1100;  // ms
 
-// -- Waves ------------------------------------------------------------------
-const WAVE_INTERVAL_MS = 18000;
-const WAVE_BASE_COUNT  = 3;
+const TURRET_POSITIONS = [
+  { x: BASE_X, y: 330 },
+  { x: BASE_X, y: 750 },
+];
 
-// -- Box-select drag threshold (px) ----------------------------------------
-const DRAG_THRESHOLD = 8;
+// ── Enemy marchers (wave) ────────────────────────────────────────────────────
+const MARCH_R      = 16;
+const MARCH_HP_BASE  = 80;
+const MARCH_ATK_BASE = 12;
+const MARCH_SPEED  = 62;
+const MARCH_ATK_R  = 95;
+const MARCH_ATK_CD = 1200;
+const WAVE_MS      = 22000;
 
-type UnitState = 'idle' | 'move' | 'hold' | 'attack_move';
+// ── Fort guards ──────────────────────────────────────────────────────────────
+const GUARD_HP_BASE  = 120;
+const GUARD_ATK_BASE = 18;
+const GUARD_SPEED    = 90;
+const GUARD_ATK_R    = 95;
+const GUARD_ATK_CD   = 1000;
+const GUARD_DETECT   = 230;
+const GUARD_LEASH    = 380;
 
-interface AirUnit {
-  id: string; x: number; y: number;
-  hp: number; maxHp: number;
-  speed: number; attack: number; attackRange: number;
-  owner: 'player' | 'enemy';
+// ── Fort structures ───────────────────────────────────────────────────────────
+const WALL_X       = 1590;
+const WALL_HW      = 18;           // half-thickness of wall
+const GATE_HH      = 110;          // gate half-height → gate spans 220 px
+const WALL_TOP_CY  = (BASE_Y - GATE_HH) / 2;                              // ~215
+const WALL_TOP_HH  = (BASE_Y - GATE_HH) / 2;                              // ~215
+const WALL_BOT_CY  = BASE_Y + GATE_HH + (WORLD_H - BASE_Y - GATE_HH) / 2; // ~865
+const WALL_BOT_HH  = (WORLD_H - BASE_Y - GATE_HH) / 2;                    // ~215
+const GATE_HP_MAX  = 500;
+const TOWER_HP     = 700;
+const TOWER_ATK    = 22;
+const TOWER_RANGE  = 290;
+const TOWER_CD     = 1500;
+const CORE_R       = 45;
+const CORE_X       = 1800;
+const CORE_HP_MAX  = 1200;
+
+// ── Quest camps ───────────────────────────────────────────────────────────────
+const CAMP_DATA = [
+  { id: 'camp_a', x: 720,  y: 330, label: 'Enemy Camp A' },
+  { id: 'camp_b', x: 1100, y: 720, label: 'Enemy Camp B' },
+];
+const GUARDS_PER_CAMP  = 3;
+const CAMP_BONUS_EACH  = 30; // extra crystals per cleared camp
+
+// ── Interfaces ────────────────────────────────────────────────────────────────
+
+interface HeroState {
   name: string;
-  targetX: number; targetY: number;
-  attackTarget: string | null;
+  x: number; y: number;
+  hp: number; maxHp: number;
   lastAttackMs: number;
-  selected: boolean;
-  state: UnitState;
+  isDashing: boolean;
+  dashEndMs: number;
+  dashDirX: number; dashDirY: number;
+  dashCooldown: number;         // remaining cooldown ms
+  moveTargetX: number; moveTargetY: number;
+  isMovingToClick: boolean;
   hitFlashMs: number;
 }
 
-interface CommandEcho { x: number; y: number; startMs: number; }
+interface Turret {
+  id: string;
+  x: number; y: number;
+  hp: number; maxHp: number;
+  lastAttackMs: number;
+  destroyed: boolean;
+}
+
+interface EnemyUnit {
+  id: string;
+  kind: 'marcher' | 'guard' | 'camp_guard';
+  campId?: string;
+  x: number; y: number;
+  hp: number; maxHp: number;
+  speed: number;
+  attack: number;
+  attackRange: number;
+  attackCd: number;
+  lastAttackMs: number;
+  originX: number; originY: number;
+  hitFlashMs: number;
+}
+
+type FortType = 'wall_top' | 'wall_bot' | 'gate' | 'tower' | 'core';
+
+interface FortBlock {
+  id: string;
+  type: FortType;
+  cx: number; cy: number;
+  hw: number; hh: number;   // half-extents (used for collision + rendering)
+  hp: number; maxHp: number;
+  attack?: number;
+  attackRange?: number;
+  attackCd?: number;
+  lastAttackMs?: number;
+  destroyed: boolean;
+}
+
+interface QuestCamp {
+  id: string;
+  x: number; y: number;
+  label: string;
+  cleared: boolean;
+  guardIds: Set<string>;
+}
+
+// ── Scene ─────────────────────────────────────────────────────────────────────
 
 export class AirCombatScene extends Phaser.Scene {
   private gsm!: IGameStateManager;
-  private heroSystem!: IHeroSystem;
+  private heroSystem!: IHeroSystem; // reserved for future hero stat integration
   private services!: ServiceBundle;
+  private dangerLevel = 1;
 
-  private units: AirUnit[] = [];
+  private hero!: HeroState;
+  private turrets: Turret[] = [];
+  private enemies: EnemyUnit[] = [];
+  private fortBlocks: FortBlock[] = [];
+  private camps: QuestCamp[] = [];
+
   private playerBaseHp = BASE_HP;
-  private enemyBaseHp  = BASE_HP;
-  private combatDone   = false;
-  private dangerLevel  = 1;
+  private sceneDone    = false;
+  private campsCleared = 0;
+  private waveTimer    = 0;
+  private waveNumber   = 0;
+  private enemyCounter = 0;
 
   private gfx!: Phaser.GameObjects.Graphics;
-  private playerBaseSprite: Phaser.GameObjects.Image | null = null;
   private hudText!: Phaser.GameObjects.Text;
   private waveText!: Phaser.GameObjects.Text;
-  private unitNameTexts: Map<string, Phaser.GameObjects.Text> = new Map();
+  private objectiveText!: Phaser.GameObjects.Text;
 
-  private dragStart: { x: number; y: number } | null = null;
-  private isDragging = false;
-  private attackMoveMode = false;
-  private commandEchos: CommandEcho[] = [];
-
-  private waveTimer  = 0;
-  private waveNumber = 0;
+  private keys!: {
+    W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key;
+    S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key;
+    UP: Phaser.Input.Keyboard.Key; DOWN: Phaser.Input.Keyboard.Key;
+    LEFT: Phaser.Input.Keyboard.Key; RIGHT: Phaser.Input.Keyboard.Key;
+    SPACE: Phaser.Input.Keyboard.Key;
+  };
 
   constructor() { super({ key: AIR_COMBAT_SCENE_KEY }); }
 
@@ -95,541 +203,772 @@ export class AirCombatScene extends Phaser.Scene {
     this.services    = data;
     this.gsm         = data.gsm;
     this.heroSystem  = data.heroSystem;
-    this.dangerLevel = data.dangerLevel ?? 1;
+    this.dangerLevel = data.dangerLevel ?? this.gsm.missionContext?.dangerLevel ?? 1;
   }
 
   preload(): void {
-    if (!this.textures.exists(AIR_BACKGROUND_TEXTURE_KEY)) {
-      this.load.image(AIR_BACKGROUND_TEXTURE_KEY, 'backgrounds/battlebackground01.webp');
+    if (!this.textures.exists('air_battle_bg')) {
+      this.load.image('air_battle_bg', 'backgrounds/battlebackground01.webp');
     }
-    if (!this.textures.exists(PLAYER_CITY_TEXTURE_KEY)) {
-      this.load.image(PLAYER_CITY_TEXTURE_KEY, 'sprites/battlecity01.webp');
+    if (!this.textures.exists('air_player_city')) {
+      this.load.image('air_player_city', 'sprites/battlecity01.webp');
     }
   }
 
   create(): void {
-    this.combatDone    = false;
-    this.playerBaseHp  = BASE_HP;
-    this.enemyBaseHp   = BASE_HP;
-    this.units         = [];
-    this.commandEchos  = [];
-    this.waveTimer     = 0;
-    this.waveNumber    = 0;
-    this.attackMoveMode = false;
-    this.dragStart     = null;
-    this.isDragging    = false;
-    this.unitNameTexts.forEach(t => t.destroy());
-    this.unitNameTexts.clear();
+    // Reset all state
+    this.enemies      = [];
+    this.turrets      = [];
+    this.fortBlocks   = [];
+    this.camps        = [];
+    this.waveTimer    = 0;
+    this.waveNumber   = 0;
+    this.enemyCounter = 0;
+    this.playerBaseHp = BASE_HP;
+    this.sceneDone    = false;
+    this.campsCleared = 0;
 
-    this._drawStaticBackground();
-    this.playerBaseSprite = this.add.image(PLAYER_BASE_X, BASE_Y + 8, PLAYER_CITY_TEXTURE_KEY)
-      .setDisplaySize(440, 240)
-      .setDepth(0.0);
+    // Background
+    this.add.image(WORLD_W / 2, WORLD_H / 2, 'air_battle_bg')
+      .setDisplaySize(WORLD_W, WORLD_H).setDepth(-10);
+    this.add.image(BASE_X, BASE_Y + 8, 'air_player_city')
+      .setDisplaySize(420, 230).setDepth(-1);
+
     this.gfx = this.add.graphics();
-    this._spawnPlayerUnits();
-    this._spawnEnemyUnits();
-    this._buildStaticHUD();
+
+    // Resolve hero name from roster
+    const ctx      = this.gsm.missionContext;
+    const heroData = this.gsm.heroRoster.find(h => h.id === ctx?.activeHeroId);
+    const heroName = heroData?.name ?? 'Hero';
+
+    this._buildHero(heroName);
+    this._buildTurrets();
+    this._buildFort();
+    this._buildCamps();
+    this._spawnInitialForce();
+    this._buildHUD();
     this._registerInput();
   }
 
-  // -- Input ----------------------------------------------------------------
+  // ── Builders ──────────────────────────────────────────────────────────────
+
+  private _buildHero(name: string): void {
+    this.hero = {
+      name,
+      x: BASE_X + 160, y: BASE_Y,
+      hp: HERO_HP, maxHp: HERO_HP,
+      lastAttackMs: 0,
+      isDashing: false, dashEndMs: 0,
+      dashDirX: 1, dashDirY: 0,
+      dashCooldown: 0,
+      moveTargetX: BASE_X + 160, moveTargetY: BASE_Y,
+      isMovingToClick: false,
+      hitFlashMs: -9999,
+    };
+  }
+
+  private _buildTurrets(): void {
+    TURRET_POSITIONS.forEach((pos, i) => {
+      this.turrets.push({
+        id: 'turret_' + i,
+        x: pos.x, y: pos.y,
+        hp: TURRET_HP, maxHp: TURRET_HP,
+        lastAttackMs: 0,
+        destroyed: false,
+      });
+    });
+  }
+
+  private _buildFort(): void {
+    // Non-destructible wall segments
+    this.fortBlocks.push({
+      id: 'wall_top', type: 'wall_top',
+      cx: WALL_X, cy: WALL_TOP_CY, hw: WALL_HW, hh: WALL_TOP_HH,
+      hp: 9999, maxHp: 9999, destroyed: false,
+    });
+    this.fortBlocks.push({
+      id: 'wall_bot', type: 'wall_bot',
+      cx: WALL_X, cy: WALL_BOT_CY, hw: WALL_HW, hh: WALL_BOT_HH,
+      hp: 9999, maxHp: 9999, destroyed: false,
+    });
+
+    // Gate — destroyable, blocks hero passage until broken
+    this.fortBlocks.push({
+      id: 'gate', type: 'gate',
+      cx: WALL_X, cy: BASE_Y, hw: WALL_HW, hh: GATE_HH,
+      hp: GATE_HP_MAX, maxHp: GATE_HP_MAX, destroyed: false,
+    });
+
+    // Flanking towers — attack hero when in range
+    [
+      { id: 'tower_top', cx: WALL_X + 38, cy: BASE_Y - GATE_HH - 30 },
+      { id: 'tower_bot', cx: WALL_X + 38, cy: BASE_Y + GATE_HH + 30 },
+    ].forEach(t => {
+      this.fortBlocks.push({
+        id: t.id, type: 'tower',
+        cx: t.cx, cy: t.cy, hw: 28, hh: 28,
+        hp: TOWER_HP, maxHp: TOWER_HP,
+        attack: TOWER_ATK, attackRange: TOWER_RANGE,
+        attackCd: TOWER_CD, lastAttackMs: 0,
+        destroyed: false,
+      });
+    });
+
+    // Stronghold core — primary win objective
+    this.fortBlocks.push({
+      id: 'core', type: 'core',
+      cx: CORE_X, cy: BASE_Y, hw: CORE_R, hh: CORE_R,
+      hp: CORE_HP_MAX, maxHp: CORE_HP_MAX,
+      destroyed: false,
+    });
+  }
+
+  private _buildCamps(): void {
+    CAMP_DATA.forEach(cd => {
+      const camp: QuestCamp = {
+        id: cd.id, x: cd.x, y: cd.y, label: cd.label,
+        cleared: false, guardIds: new Set(),
+      };
+      this.camps.push(camp);
+      for (let i = 0; i < GUARDS_PER_CAMP; i++) {
+        const angle = (i / GUARDS_PER_CAMP) * Math.PI * 2;
+        const e = this._makeEnemy('camp_guard', cd.x + Math.cos(angle) * 55, cd.y + Math.sin(angle) * 55, cd.id);
+        camp.guardIds.add(e.id);
+        this.enemies.push(e);
+      }
+    });
+  }
+
+  private _spawnInitialForce(): void {
+    // Fort guards defending the core
+    [
+      { x: CORE_X - 110, y: BASE_Y - 80 },
+      { x: CORE_X - 70,  y: BASE_Y + 100 },
+      { x: CORE_X + 60,  y: BASE_Y - 40 },
+    ].forEach(pos => this.enemies.push(this._makeEnemy('guard', pos.x, pos.y)));
+
+    // First marcher wave
+    this._spawnWave(/* initial */ true);
+  }
+
+  private _makeEnemy(kind: EnemyUnit['kind'], x: number, y: number, campId?: string): EnemyUnit {
+    const dl      = this.dangerLevel;
+    const isGuard = kind !== 'marcher';
+    return {
+      id: 'e' + (this.enemyCounter++),
+      kind, campId,
+      x, y,
+      hp:          (isGuard ? GUARD_HP_BASE  : MARCH_HP_BASE)  + dl * 6,
+      maxHp:       (isGuard ? GUARD_HP_BASE  : MARCH_HP_BASE)  + dl * 6,
+      speed:       isGuard ? GUARD_SPEED  : MARCH_SPEED,
+      attack:      (isGuard ? GUARD_ATK_BASE : MARCH_ATK_BASE) + Math.floor(dl * 0.5),
+      attackRange: isGuard ? GUARD_ATK_R  : MARCH_ATK_R,
+      attackCd:    isGuard ? GUARD_ATK_CD : MARCH_ATK_CD,
+      lastAttackMs: 0,
+      originX: x, originY: y,
+      hitFlashMs: -9999,
+    };
+  }
+
+  // ── Input ─────────────────────────────────────────────────────────────────
 
   private _registerInput(): void {
-    // Disable context menu so right-click works in-game
-    this.game.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-
+    this.game.canvas.addEventListener('contextmenu', e => e.preventDefault());
+    const kb = this.input.keyboard!;
+    this.keys = {
+      W:     kb.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+      A:     kb.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+      S:     kb.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+      D:     kb.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+      UP:    kb.addKey(Phaser.Input.Keyboard.KeyCodes.UP),
+      DOWN:  kb.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN),
+      LEFT:  kb.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT),
+      RIGHT: kb.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT),
+      SPACE: kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
+    };
+    kb.on('keydown-SPACE', () => { if (!this.sceneDone) this._tryDash(); });
+    kb.on('keydown-ESC',   () => { if (!this.sceneDone) this._endCombat('retreat'); });
     this.input.on('pointerdown', (ptr: Phaser.Input.Pointer) => {
-      if (this.combatDone) return;
-      if (ptr.rightButtonDown()) {
-        this._handleRightClick(ptr.x, ptr.y);
-        return;
-      }
-      if (ptr.leftButtonDown()) {
-        this.dragStart  = { x: ptr.x, y: ptr.y };
-        this.isDragging = false;
-      }
-    });
-
-    this.input.on('pointermove', (ptr: Phaser.Input.Pointer) => {
-      if (!this.dragStart || !ptr.leftButtonDown()) return;
-      const dx = ptr.x - this.dragStart!.x;
-      const dy = ptr.y - this.dragStart!.y;
-      if (Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) this.isDragging = true;
-    });
-
-    this.input.on('pointerup', (ptr: Phaser.Input.Pointer) => {
-      if (this.combatDone) return;
-      if ((ptr.event as MouseEvent).button === 0 && this.dragStart) {
-        if (this.isDragging) {
-          this._doBoxSelect(
-            this.dragStart.x, this.dragStart.y, ptr.x, ptr.y,
-            (ptr.event as MouseEvent).shiftKey,
-          );
-        } else {
-          this._handleLeftClick(ptr.x, ptr.y, (ptr.event as MouseEvent).shiftKey);
-        }
-        this.dragStart  = null;
-        this.isDragging = false;
-      }
-    });
-
-    this.input.keyboard!.on('keydown-ESC', () => {
-      if (!this.combatDone) this._endCombat('retreat');
-    });
-    this.input.keyboard!.on('keydown-A', () => {
-      if (this.combatDone) return;
-      if (this.units.some(u => u.owner === 'player' && u.selected)) {
-        this.attackMoveMode = !this.attackMoveMode;
-      }
-    });
-    this.input.keyboard!.on('keydown-H', () => {
-      if (this.combatDone) return;
-      this.units.filter(u => u.owner === 'player' && u.selected).forEach(u => {
-        u.state         = u.state === 'hold' ? 'idle' : 'hold';
-        u.attackTarget  = null;
-      });
-    });
-    this.input.keyboard!.on('keydown-S', () => {
-      if (this.combatDone) return;
-      this.units.filter(u => u.owner === 'player' && u.selected).forEach(u => {
-        u.state = 'idle'; u.attackTarget = null;
-        u.targetX = u.x; u.targetY = u.y;
-      });
+      if (this.sceneDone || !ptr.leftButtonDown()) return;
+      this.hero.moveTargetX    = ptr.x;
+      this.hero.moveTargetY    = ptr.y;
+      this.hero.isMovingToClick = true;
     });
   }
 
-  private _handleLeftClick(px: number, py: number, shift: boolean): void {
-    const hit = this.units.find(u =>
-      u.owner === 'player' && this._dist(u, { x: px, y: py }) < UNIT_RADIUS + 6
-    );
-    if (hit) {
-      if (!shift) this.units.forEach(u => { if (u.owner === 'player') u.selected = false; });
-      hit.selected = shift ? !hit.selected : true;
-      this.attackMoveMode = false;
-    } else if (!shift) {
-      this.units.forEach(u => { if (u.owner === 'player') u.selected = false; });
-      this.attackMoveMode = false;
-    }
+  private _tryDash(): void {
+    const h = this.hero;
+    if (h.dashCooldown > 0) return;
+    // Dash toward click target, or rightward if no target
+    let dx = h.moveTargetX - h.x;
+    let dy = h.moveTargetY - h.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 1) { dx = 1; dy = 0; } else { dx /= len; dy /= len; }
+    h.isDashing   = true;
+    h.dashEndMs   = this.time.now + DASH_DUR;
+    h.dashDirX    = dx;
+    h.dashDirY    = dy;
+    h.dashCooldown = DASH_CD;
   }
 
-  private _doBoxSelect(x1: number, y1: number, x2: number, y2: number, shift: boolean): void {
-    const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
-    const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
-    if (!shift) this.units.forEach(u => { if (u.owner === 'player') u.selected = false; });
-    this.units.forEach(u => {
-      if (u.owner === 'player' && u.x >= minX && u.x <= maxX && u.y >= minY && u.y <= maxY)
-        u.selected = true;
-    });
-  }
-
-  private _handleRightClick(px: number, py: number): void {
-    const sel = this.units.filter(u => u.owner === 'player' && u.selected);
-    if (!sel.length) return;
-
-    const hitEnemy = this.units.find(u =>
-      u.owner === 'enemy' && this._dist(u, { x: px, y: py }) < UNIT_RADIUS + 10
-    );
-    if (hitEnemy) {
-      sel.forEach(u => { u.attackTarget = hitEnemy.id; u.state = 'attack_move'; });
-      this._addEcho(px, py); this.attackMoveMode = false; return;
-    }
-
-    if (Math.abs(px - ENEMY_BASE_X) < BASE_W / 2 + 14 && Math.abs(py - BASE_Y) < BASE_H / 2 + 14) {
-      sel.forEach(u => { u.attackTarget = 'enemy_base'; u.state = 'attack_move'; });
-      this._addEcho(ENEMY_BASE_X, BASE_Y); this.attackMoveMode = false; return;
-    }
-
-    const mode: UnitState = this.attackMoveMode ? 'attack_move' : 'move';
-    sel.forEach((u, i) => {
-      u.targetX = px; u.targetY = py + (i - (sel.length - 1) / 2) * 45;
-      u.attackTarget = null; u.state = mode;
-    });
-    this._addEcho(px, py);
-    this.attackMoveMode = false;
-  }
-
-  private _addEcho(x: number, y: number): void {
-    this.commandEchos.push({ x, y, startMs: this.time.now });
-    if (this.commandEchos.length > 12) this.commandEchos.shift();
-  }
-  // -- Update ---------------------------------------------------------------
+  // ── Update ────────────────────────────────────────────────────────────────
 
   update(time: number, delta: number): void {
-    if (this.combatDone) return;
+    if (this.sceneDone) return;
     this.waveTimer += delta;
-    if (this.waveTimer >= WAVE_INTERVAL_MS) {
-      this.waveTimer -= WAVE_INTERVAL_MS;
-      this._spawnEnemyWave();
+    if (this.waveTimer >= WAVE_MS) {
+      this.waveTimer -= WAVE_MS;
+      this._spawnWave(false);
     }
-    this._updateUnits(time, delta);
+    this._updateHero(time, delta);
+    this._updateEnemies(time, delta);
+    this._updateTurrets(time);
+    this._updateFortTowers(time);
+    this._checkCamps();
+    this._checkWinLose();
     this._render(time);
-    this._updateHUD();
-    this._updateNameLabels();
+    this._updateHUD(time);
   }
 
-  // -- Spawning -------------------------------------------------------------
+  // ── Hero ──────────────────────────────────────────────────────────────────
 
-  private _spawnPlayerUnits(): void {
-    const heroes = this.gsm.heroRoster.slice(0, 4);
-    const count  = Math.max(1, heroes.length);
-    for (let i = 0; i < count; i++) {
-      const hero = heroes[i];
-      const name = hero ? hero.name : ('Unit ' + (i + 1));
-      const yOff = (i - (count - 1) / 2) * 80;
-      const unit: AirUnit = {
-        id: 'player_' + i,
-        x: PLAYER_BASE_X + 140, y: BASE_Y + yOff,
-        hp: PLAYER_UNIT_HP, maxHp: PLAYER_UNIT_HP,
-        speed: PLAYER_UNIT_SPEED, attack: PLAYER_UNIT_ATK, attackRange: ATTACK_RANGE,
-        owner: 'player', name,
-        targetX: PLAYER_BASE_X + 140, targetY: BASE_Y + yOff,
-        attackTarget: null, lastAttackMs: 0, selected: false,
-        state: 'idle', hitFlashMs: -9999,
-      };
-      this.units.push(unit);
-      const lbl = this.add.text(unit.x, unit.y - UNIT_RADIUS - 14, name, {
-        fontSize: '11px', color: '#88ddff',
-        stroke: '#000000', strokeThickness: 2,
-      }).setOrigin(0.5, 1);
-      this.unitNameTexts.set(unit.id, lbl);
-    }
-  }
+  private _updateHero(time: number, delta: number): void {
+    const h  = this.hero;
+    const dt = delta / 1000;
 
-  private _spawnEnemyUnits(): void {
-    this._spawnEnemyGroup(Math.min(8, Math.max(2, this.dangerLevel + 1)), 0);
-  }
+    // Tick dash state
+    if (h.isDashing && time > h.dashEndMs) h.isDashing = false;
+    if (h.dashCooldown > 0) h.dashCooldown = Math.max(0, h.dashCooldown - delta);
 
-  private _spawnEnemyWave(): void {
-    this.waveNumber++;
-    const count = Math.min(6, WAVE_BASE_COUNT + Math.floor(this.dangerLevel * 0.5) + this.waveNumber);
-    this._spawnEnemyGroup(count, this.waveNumber * 100);
-    this.waveText.setText('Wave ' + (this.waveNumber + 1) + ' incoming!').setAlpha(1);
-    this.tweens.add({ targets: this.waveText, alpha: 0, delay: 2500, duration: 800 });
-  }
-
-  private _spawnEnemyGroup(count: number, idOffset: number): void {
-    for (let i = 0; i < count; i++) {
-      const yOff = (i - (count - 1) / 2) * 90;
-      const hp   = ENEMY_UNIT_HP + this.dangerLevel * 5;
-      const unit: AirUnit = {
-        id: 'enemy_' + (idOffset + i),
-        x: ENEMY_BASE_X - 140, y: BASE_Y + yOff,
-        hp, maxHp: hp,
-        speed: ENEMY_UNIT_SPEED,
-        attack: ENEMY_UNIT_ATK + Math.floor(this.dangerLevel * 0.5),
-        attackRange: ATTACK_RANGE,
-        owner: 'enemy',
-        name: 'Enemy ' + (idOffset + i + 1),
-        targetX: PLAYER_BASE_X, targetY: BASE_Y + yOff,
-        attackTarget: null, lastAttackMs: 0, selected: false,
-        state: 'move', hitFlashMs: -9999,
-      };
-      this.units.push(unit);
-    }
-  }
-
-  // -- AI & movement --------------------------------------------------------
-
-  private _updateUnits(time: number, delta: number): void {
-    const alive = this.units.filter(u => u.hp > 0);
-    for (const unit of alive) {
-      if (unit.owner === 'enemy') this._enemyAI(unit, alive);
-      else                           this._playerUnitAI(unit, alive);
-      this._moveUnit(unit, delta);
-      if (unit.attackTarget && time - unit.lastAttackMs >= ATTACK_COOLDOWN)
-        this._doAttack(unit, alive, time);
-    }
-    this.units = this.units.filter(u => u.hp > 0);
-    if (this.playerBaseHp <= 0) { this._endCombat('defeat');  return; }
-    if (this.enemyBaseHp  <= 0) { this._endCombat('victory'); return; }
-  }
-
-  private _enemyAI(unit: AirUnit, alive: AirUnit[]): void {
-    const nearest = this._nearestOpponent(unit, alive);
-    if (nearest && this._dist(unit, nearest) <= ATTACK_RANGE * 1.8) {
-      unit.attackTarget = nearest.id;
-      unit.targetX = nearest.x; unit.targetY = nearest.y;
+    // Movement
+    if (h.isDashing) {
+      this._applyHeroMove(h.dashDirX, h.dashDirY, HERO_SPEED * DASH_SPD_MUL, dt);
     } else {
-      unit.attackTarget = 'player_base';
-      unit.targetX = PLAYER_BASE_X; unit.targetY = BASE_Y;
-    }
-  }
+      let dx = 0, dy = 0;
+      if (this.keys.W.isDown || this.keys.UP.isDown)    dy -= 1;
+      if (this.keys.S.isDown || this.keys.DOWN.isDown)  dy += 1;
+      if (this.keys.A.isDown || this.keys.LEFT.isDown)  dx -= 1;
+      if (this.keys.D.isDown || this.keys.RIGHT.isDown) dx += 1;
 
-  private _playerUnitAI(unit: AirUnit, alive: AirUnit[]): void {
-    if (unit.state === 'hold') {
-      if (!unit.attackTarget) {
-        const nearest = this._nearestOpponent(unit, alive);
-        if (nearest && this._dist(unit, nearest) <= unit.attackRange)
-          unit.attackTarget = nearest.id;
+      if (dx !== 0 || dy !== 0) {
+        h.isMovingToClick = false;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        this._applyHeroMove(dx / len, dy / len, HERO_SPEED, dt);
+      } else if (h.isMovingToClick) {
+        const tdx = h.moveTargetX - h.x;
+        const tdy = h.moveTargetY - h.y;
+        const d   = Math.sqrt(tdx * tdx + tdy * tdy);
+        if (d < 8) { h.isMovingToClick = false; }
+        else       { this._applyHeroMove(tdx / d, tdy / d, HERO_SPEED, dt); }
+      }
+    }
+
+    // Auto-attack: prefer nearby enemies, then fort structures
+    if (time - h.lastAttackMs >= HERO_ATK_CD) {
+      const enemy = this._nearestEnemyTo(h, HERO_ATK_R);
+      if (enemy) {
+        h.lastAttackMs = time;
+        enemy.hp -= HERO_ATK;
+        enemy.hitFlashMs = time;
+        if (enemy.hp <= 0) this._killEnemy(enemy);
       } else {
-        const tgt = alive.find(u => u.id === unit.attackTarget);
-        if (!tgt) unit.attackTarget = null;
-      }
-      return;
-    }
-    if (unit.state === 'attack_move') {
-      if (!unit.attackTarget) {
-        const nearest = this._nearestOpponent(unit, alive);
-        if (nearest && this._dist(unit, nearest) <= unit.attackRange * 1.4)
-          unit.attackTarget = nearest.id;
-      } else {
-        const tgt = alive.find(u => u.id === unit.attackTarget);
-        if (!tgt && unit.attackTarget !== 'enemy_base') unit.attackTarget = null;
+        const block = this._nearestAttackableFort();
+        if (block) {
+          h.lastAttackMs = time;
+          block.hp -= HERO_ATK;
+          if (block.hp <= 0) block.destroyed = true;
+        }
       }
     }
   }
 
-  private _moveUnit(unit: AirUnit, delta: number): void {
-    if (unit.state === 'hold') return;
-    const { tx, ty } = this._targetPos(unit);
-    const dx = tx - unit.x, dy = ty - unit.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const stopDist = unit.attackTarget ? unit.attackRange * 0.85 : 4;
-    if (dist > stopDist) {
-      const spd = (unit.speed * delta) / 1000;
-      unit.x += (dx / dist) * spd;
-      unit.y += (dy / dist) * spd;
-      unit.y = Math.max(60, Math.min(WORLD_H - 60, unit.y));
-    } else if (!unit.attackTarget && unit.state === 'move') {
-      unit.state = 'idle';
+  private _applyHeroMove(dx: number, dy: number, speed: number, dt: number): void {
+    const h  = this.hero;
+    const nx = Math.max(HERO_R, Math.min(WORLD_W - HERO_R, h.x + dx * speed * dt));
+    const ny = Math.max(HERO_R, Math.min(WORLD_H - HERO_R, h.y + dy * speed * dt));
+    if (!this._heroOverlapsBlocks(nx, ny)) {
+      h.x = nx; h.y = ny;
+    } else {
+      // Wall-sliding: try each axis independently
+      const sx = Math.max(HERO_R, Math.min(WORLD_W - HERO_R, h.x + dx * speed * dt));
+      if (!this._heroOverlapsBlocks(sx, h.y)) { h.x = sx; }
+      const sy = Math.max(HERO_R, Math.min(WORLD_H - HERO_R, h.y + dy * speed * dt));
+      if (!this._heroOverlapsBlocks(h.x, sy)) { h.y = sy; }
     }
   }
 
-  private _targetPos(unit: AirUnit): { tx: number; ty: number } {
-    if (!unit.attackTarget) return { tx: unit.targetX, ty: unit.targetY };
-    if (unit.attackTarget === 'player_base') return { tx: PLAYER_BASE_X, ty: BASE_Y };
-    if (unit.attackTarget === 'enemy_base')  return { tx: ENEMY_BASE_X,  ty: BASE_Y };
-    const tgt = this.units.find(u => u.id === unit.attackTarget && u.hp > 0);
-    if (!tgt) { unit.attackTarget = null; return { tx: unit.targetX, ty: unit.targetY }; }
-    return { tx: tgt.x, ty: tgt.y };
+  /** AABB-circle overlap: only wall_top / wall_bot / gate block hero movement. */
+  private _heroOverlapsBlocks(hx: number, hy: number): boolean {
+    for (const b of this.fortBlocks) {
+      if (b.destroyed) continue;
+      if (b.type !== 'wall_top' && b.type !== 'wall_bot' && b.type !== 'gate') continue;
+      const cx  = Math.max(b.cx - b.hw, Math.min(hx, b.cx + b.hw));
+      const cy  = Math.max(b.cy - b.hh, Math.min(hy, b.cy + b.hh));
+      const dx  = hx - cx, dy = hy - cy;
+      if (dx * dx + dy * dy < HERO_R * HERO_R) return true;
+    }
+    return false;
   }
 
-  private _nearestOpponent(unit: AirUnit, alive: AirUnit[]): AirUnit | null {
-    const opp = alive.filter(u => u.owner !== unit.owner);
-    if (!opp.length) return null;
-    return opp.reduce((b2, u) => this._dist(unit, u) < this._dist(unit, b2) ? u : b2);
+  private _nearestAttackableFort(): FortBlock | null {
+    const ATTACK_TYPES: FortType[] = ['gate', 'tower', 'core'];
+    let best: FortBlock | null = null;
+    let bestD = HERO_ATK_R + 35; // slightly extended for structures
+    for (const b of this.fortBlocks) {
+      if (b.destroyed || !ATTACK_TYPES.includes(b.type)) continue;
+      const d = this._dist(this.hero, { x: b.cx, y: b.cy });
+      if (d < bestD) { bestD = d; best = b; }
+    }
+    return best;
   }
 
-  private _doAttack(unit: AirUnit, alive: AirUnit[], time: number): void {
-    unit.lastAttackMs = time;
-    if (unit.attackTarget === 'enemy_base') {
-      if (this._dist(unit, { x: ENEMY_BASE_X, y: BASE_Y }) <= unit.attackRange) {
-        this.enemyBaseHp -= unit.attack; this._flashBase('enemy');
+  private _killEnemy(e: EnemyUnit): void {
+    if (e.campId) {
+      const camp = this.camps.find(c => c.id === e.campId);
+      if (camp) camp.guardIds.delete(e.id);
+    }
+    this.enemies = this.enemies.filter(u => u.id !== e.id);
+  }
+
+  // ── Enemy AI ──────────────────────────────────────────────────────────────
+
+  private _updateEnemies(time: number, delta: number): void {
+    const dt = delta / 1000;
+    // Iterate over a snapshot — _killEnemy mutates this.enemies
+    for (const e of [...this.enemies]) {
+      if (e.kind === 'marcher') this._tickMarcher(e, time, dt);
+      else                      this._tickGuard(e, time, dt);
+    }
+    this.enemies = this.enemies.filter(e => e.hp > 0);
+  }
+
+  private _tickMarcher(e: EnemyUnit, time: number, dt: number): void {
+    const h      = this.hero;
+    const heroD  = this._dist(e, h);
+
+    if (heroD < MARCH_ATK_R * 1.8) {
+      // Divert to attack hero
+      this._moveToward(e, h.x, h.y, dt);
+      if (heroD <= e.attackRange && time - e.lastAttackMs >= e.attackCd) {
+        e.lastAttackMs = time;
+        h.hp -= e.attack;
+        h.hitFlashMs = time;
+        if (h.hp <= 0) { this._endCombat('defeat'); return; }
       }
-      return;
-    }
-    if (unit.attackTarget === 'player_base') {
-      if (this._dist(unit, { x: PLAYER_BASE_X, y: BASE_Y }) <= unit.attackRange) {
-        this.playerBaseHp -= unit.attack; this._flashBase('player');
+    } else {
+      // March toward nearest base target (turret or base itself)
+      const tgt = this._closestBaseTarget(e);
+      this._moveToward(e, tgt.x, tgt.y, dt);
+      const tgtD = this._dist(e, tgt);
+      if (tgtD <= e.attackRange && time - e.lastAttackMs >= e.attackCd) {
+        e.lastAttackMs = time;
+        if (tgt.turret) {
+          tgt.turret.hp -= e.attack;
+          if (tgt.turret.hp <= 0) tgt.turret.destroyed = true;
+        } else {
+          this.playerBaseHp -= e.attack;
+        }
       }
-      return;
-    }
-    const tgt = alive.find(u => u.id === unit.attackTarget);
-    if (tgt && this._dist(unit, tgt) <= unit.attackRange) {
-      tgt.hp -= unit.attack; tgt.hitFlashMs = time;
     }
   }
 
-  private _flashBase(side: 'player' | 'enemy'): void {
-    const x  = side === 'player' ? PLAYER_BASE_X : ENEMY_BASE_X;
-    const fg = this.add.graphics();
-    fg.fillStyle(0xff4444, 0.5);
-    fg.fillRect(x - BASE_W / 2, BASE_Y - BASE_H / 2, BASE_W, BASE_H);
-    this.time.delayedCall(120, () => fg.destroy());
+  private _closestBaseTarget(e: EnemyUnit): { x: number; y: number; turret?: Turret } {
+    let bestDist = this._dist(e, { x: BASE_X, y: BASE_Y });
+    let best: { x: number; y: number; turret?: Turret } = { x: BASE_X, y: BASE_Y };
+    for (const t of this.turrets) {
+      if (t.destroyed) continue;
+      const d = this._dist(e, t);
+      if (d < bestDist) { bestDist = d; best = { x: t.x, y: t.y, turret: t }; }
+    }
+    return best;
   }
 
-  // -- Rendering -----------------------------------------------------------
+  private _tickGuard(e: EnemyUnit, time: number, dt: number): void {
+    const h      = this.hero;
+    const heroD  = this._dist(e, h);
+    const homeD  = this._dist(e, { x: e.originX, y: e.originY });
+
+    if (heroD < GUARD_DETECT) {
+      // Chase and attack
+      this._moveToward(e, h.x, h.y, dt);
+      if (heroD <= e.attackRange && time - e.lastAttackMs >= e.attackCd) {
+        e.lastAttackMs = time;
+        h.hp -= e.attack;
+        h.hitFlashMs = time;
+        if (h.hp <= 0) { this._endCombat('defeat'); return; }
+      }
+    } else if (homeD > GUARD_LEASH) {
+      // Leash: return to origin
+      this._moveToward(e, e.originX, e.originY, dt);
+    }
+    // else: idle at post
+  }
+
+  private _moveToward(e: EnemyUnit, tx: number, ty: number, dt: number): void {
+    const dx = tx - e.x, dy = ty - e.y;
+    const d  = Math.sqrt(dx * dx + dy * dy);
+    if (d < 2) return;
+    e.x = Math.max(MARCH_R, Math.min(WORLD_W - MARCH_R, e.x + (dx / d) * e.speed * dt));
+    e.y = Math.max(MARCH_R, Math.min(WORLD_H - MARCH_R, e.y + (dy / d) * e.speed * dt));
+  }
+
+  // ── Turret AI ─────────────────────────────────────────────────────────────
+
+  private _updateTurrets(time: number): void {
+    for (const t of this.turrets) {
+      if (t.destroyed || time - t.lastAttackMs < TURRET_CD) continue;
+      const target = this._nearestEnemyTo(t, TURRET_RANGE);
+      if (!target) continue;
+      t.lastAttackMs = time;
+      target.hp -= TURRET_ATK;
+      target.hitFlashMs = time;
+      if (target.hp <= 0) this._killEnemy(target);
+    }
+  }
+
+  // ── Fort tower AI ─────────────────────────────────────────────────────────
+
+  private _updateFortTowers(time: number): void {
+    for (const b of this.fortBlocks) {
+      if (b.type !== 'tower' || b.destroyed) continue;
+      if (!b.attack || !b.attackRange || !b.attackCd) continue;
+      if (time - (b.lastAttackMs ?? 0) < b.attackCd) continue;
+      if (this._dist({ x: b.cx, y: b.cy }, this.hero) <= b.attackRange) {
+        b.lastAttackMs = time;
+        this.hero.hp  -= b.attack;
+        this.hero.hitFlashMs = time;
+        if (this.hero.hp <= 0) this._endCombat('defeat');
+      }
+    }
+  }
+
+  // ── Waves ─────────────────────────────────────────────────────────────────
+
+  private _spawnWave(initial: boolean): void {
+    if (!initial) {
+      this.waveNumber++;
+      this.waveText.setText('Wave ' + this.waveNumber + ' incoming!').setAlpha(1);
+      this.tweens.add({ targets: this.waveText, alpha: 0, delay: 2500, duration: 700 });
+    }
+    const count = Math.min(8, 3 + Math.floor(this.dangerLevel * 0.5) + (initial ? 0 : this.waveNumber));
+    // Spawn from inside the fort (east of wall), march westward through their own gate
+    for (let i = 0; i < count; i++) {
+      const y = 120 + (i / Math.max(count - 1, 1)) * (WORLD_H - 240);
+      this.enemies.push(this._makeEnemy('marcher', WALL_X + 80, y));
+    }
+  }
+
+  // ── Quest camps ───────────────────────────────────────────────────────────
+
+  private _checkCamps(): void {
+    for (const camp of this.camps) {
+      if (camp.cleared) continue;
+      const allDead = [...camp.guardIds].every(id => !this.enemies.find(e => e.id === id));
+      if (allDead) { camp.cleared = true; this.campsCleared++; }
+    }
+  }
+
+  // ── Win / lose ────────────────────────────────────────────────────────────
+
+  private _checkWinLose(): void {
+    if (this.fortBlocks.find(b => b.type === 'core')?.destroyed) {
+      this._endCombat('victory');
+    } else if (this.playerBaseHp <= 0) {
+      this._endCombat('defeat');
+    }
+  }
+
+  // ── Rendering ─────────────────────────────────────────────────────────────
 
   private _render(time: number): void {
     this.gfx.clear();
-    if (this.isDragging && this.dragStart) {
-      const ptr = this.input.activePointer;
-      this._renderBoxRect(this.dragStart.x, this.dragStart.y, ptr.x, ptr.y);
-    }
-    this._renderEchos(time);
-    this._drawPlayerBaseStatus();
-    this._drawBase(ENEMY_BASE_X,  BASE_Y, this.enemyBaseHp,  0xff3333);
-    for (const unit of this.units) {
-      const flashing  = (time - unit.hitFlashMs) < 150;
-      const baseColor = unit.owner === 'player'
-        ? (unit.selected ? 0x44ffff : 0x44aaff)
-        : 0xff4444;
-      const color = flashing ? 0xffffff : baseColor;
-      if (unit.selected) {
-        this.gfx.lineStyle(2, 0xffffff, 0.85);
-        this.gfx.strokeCircle(unit.x, unit.y, UNIT_RADIUS + 5);
-        this.gfx.lineStyle(1, 0xffffff, 0.12);
-        this.gfx.strokeCircle(unit.x, unit.y, unit.attackRange);
+    this._renderBase();
+    this._renderTurrets();
+    this._renderFort(time);
+    this._renderCamps();
+    this._renderEnemies(time);
+    this._renderHero(time);
+  }
+
+  private _renderBase(): void {
+    this._drawHPBar(BASE_X, BASE_Y + 130, this.playerBaseHp, BASE_HP, 120);
+  }
+
+  private _renderTurrets(): void {
+    for (const t of this.turrets) {
+      if (t.destroyed) {
+        this.gfx.fillStyle(0x555555, 0.5);
+        this.gfx.fillCircle(t.x, t.y, TURRET_R);
+        continue;
       }
-      if (unit.state === 'hold') {
-        this.gfx.lineStyle(2, 0xffaa22, 0.7);
-        this.gfx.strokeCircle(unit.x, unit.y, UNIT_RADIUS + 8);
+      this.gfx.fillStyle(0x22aaff, 1);
+      this.gfx.fillCircle(t.x, t.y, TURRET_R);
+      this.gfx.lineStyle(1, 0x22aaff, 0.15);
+      this.gfx.strokeCircle(t.x, t.y, TURRET_RANGE);
+      this._drawHPBar(t.x, t.y + TURRET_R + 4, t.hp, t.maxHp, 30);
+    }
+  }
+
+  private _renderFort(time: number): void {
+    for (const b of this.fortBlocks) {
+      if (b.destroyed) continue;
+      switch (b.type) {
+        case 'wall_top':
+        case 'wall_bot':
+          this.gfx.fillStyle(0x887755, 1);
+          this.gfx.fillRect(b.cx - b.hw, b.cy - b.hh, b.hw * 2, b.hh * 2);
+          this.gfx.lineStyle(2, 0xddcc88, 0.5);
+          this.gfx.strokeRect(b.cx - b.hw, b.cy - b.hh, b.hw * 2, b.hh * 2);
+          break;
+
+        case 'gate': {
+          const ratio = b.hp / b.maxHp;
+          const gateColor = ratio > 0.5 ? 0xaa6622 : ratio > 0.25 ? 0xcc7722 : 0xff4411;
+          this.gfx.fillStyle(gateColor, 1);
+          this.gfx.fillRect(b.cx - b.hw, b.cy - b.hh, b.hw * 2, b.hh * 2);
+          this.gfx.lineStyle(2, 0xffaa44, 0.8);
+          this.gfx.strokeRect(b.cx - b.hw, b.cy - b.hh, b.hw * 2, b.hh * 2);
+          this._drawHPBar(b.cx, b.cy + b.hh + 6, b.hp, b.maxHp, 48);
+          break;
+        }
+
+        case 'tower':
+          this.gfx.fillStyle(0x553311, 1);
+          this.gfx.fillRect(b.cx - b.hw, b.cy - b.hh, b.hw * 2, b.hh * 2);
+          this.gfx.lineStyle(2, 0xff8844, 0.7);
+          this.gfx.strokeRect(b.cx - b.hw, b.cy - b.hh, b.hw * 2, b.hh * 2);
+          this._drawHPBar(b.cx, b.cy + b.hh + 5, b.hp, b.maxHp, 40);
+          break;
+
+        case 'core': {
+          const pulse = 0.65 + 0.35 * Math.sin(time * 0.004);
+          this.gfx.fillStyle(0xdd2200, pulse);
+          this.gfx.fillCircle(b.cx, b.cy, CORE_R);
+          this.gfx.lineStyle(3, 0xff6633, 0.9);
+          this.gfx.strokeCircle(b.cx, b.cy, CORE_R);
+          this._drawHPBar(b.cx, b.cy + CORE_R + 8, b.hp, b.maxHp, 70);
+          break;
+        }
       }
-      this.gfx.fillStyle(color, 1);
-      this.gfx.fillCircle(unit.x, unit.y, UNIT_RADIUS);
-      const dr = unit.owner === 'player' ? 1 : -1;
-      this.gfx.fillStyle(0xffffff, 0.7);
-      this.gfx.fillTriangle(
-        unit.x + dr * UNIT_RADIUS,        unit.y,
-        unit.x + dr * (UNIT_RADIUS - 10), unit.y - 7,
-        unit.x + dr * (UNIT_RADIUS - 10), unit.y + 7,
-      );
-      this._drawHPBar(unit.x, unit.y + UNIT_RADIUS + 4, unit.hp, unit.maxHp, 28);
     }
   }
 
-  private _renderBoxRect(x1: number, y1: number, x2: number, y2: number): void {
-    const rx = Math.min(x1, x2), ry = Math.min(y1, y2);
-    const rw = Math.abs(x2 - x1), rh = Math.abs(y2 - y1);
-    this.gfx.fillStyle(0x44aaff, 0.08); this.gfx.fillRect(rx, ry, rw, rh);
-    this.gfx.lineStyle(1, 0x44aaff, 0.7); this.gfx.strokeRect(rx, ry, rw, rh);
-  }
-
-  private _renderEchos(time: number): void {
-    const ECHO_DUR = 600;
-    this.commandEchos = this.commandEchos.filter(e => (time - e.startMs) < ECHO_DUR);
-    for (const e of this.commandEchos) {
-      const t = (time - e.startMs) / ECHO_DUR;
-      this.gfx.lineStyle(2, 0x44ffaa, (1 - t) * 0.8);
-      this.gfx.strokeCircle(e.x, e.y, t * 22);
+  private _renderCamps(): void {
+    for (const camp of this.camps) {
+      const color = camp.cleared ? 0x44dd44 : 0xddaa22;
+      this.gfx.fillStyle(color, 0.12);
+      this.gfx.fillCircle(camp.x, camp.y, 44);
+      this.gfx.lineStyle(2, color, 0.6);
+      this.gfx.strokeCircle(camp.x, camp.y, 44);
     }
   }
 
-  private _drawBase(x: number, y: number, hp: number, color: number): void {
-    this.gfx.fillStyle(color, 0.85);
-    this.gfx.fillRect(x - BASE_W / 2, y - BASE_H / 2, BASE_W, BASE_H);
-    this.gfx.lineStyle(2, 0xffffff, 0.5);
-    this.gfx.strokeRect(x - BASE_W / 2, y - BASE_H / 2, BASE_W, BASE_H);
-    this._drawHPBar(x, y + BASE_H / 2 + 8, hp, BASE_HP, BASE_W);
+  private _renderEnemies(time: number): void {
+    for (const e of this.enemies) {
+      const flash   = (time - e.hitFlashMs) < 150;
+      const base    = e.kind === 'marcher' ? 0xff4444 : 0xff8833;
+      this.gfx.fillStyle(flash ? 0xffffff : base, 1);
+      this.gfx.fillCircle(e.x, e.y, MARCH_R);
+      this._drawHPBar(e.x, e.y + MARCH_R + 3, e.hp, e.maxHp, 26);
+    }
   }
 
-  private _drawPlayerBaseStatus(): void {
-    const barWidth = Math.max(this.playerBaseSprite?.displayWidth ?? BASE_W, BASE_W);
-    const barY = this.playerBaseSprite
-      ? this.playerBaseSprite.y + this.playerBaseSprite.displayHeight / 2 + 8
-      : BASE_Y + BASE_H / 2 + 8;
-    this._drawHPBar(PLAYER_BASE_X, barY, this.playerBaseHp, BASE_HP, barWidth);
+  private _renderHero(time: number): void {
+    const h     = this.hero;
+    const flash = (time - h.hitFlashMs) < 150;
+    const color = flash ? 0xffffff : (h.isDashing ? 0xffff44 : 0xffcc22);
+
+    // Attack radius guide (faint)
+    this.gfx.lineStyle(1, 0xffcc22, 0.16);
+    this.gfx.strokeCircle(h.x, h.y, HERO_ATK_R);
+
+    this.gfx.fillStyle(color, 1);
+    this.gfx.fillCircle(h.x, h.y, HERO_R);
+    this.gfx.lineStyle(2, 0xffffff, 0.9);
+    this.gfx.strokeCircle(h.x, h.y, HERO_R);
+
+    // Facing arrow
+    this.gfx.fillStyle(0xffffff, 0.8);
+    const dr = h.x < WALL_X ? 1 : -1;
+    this.gfx.fillTriangle(
+      h.x + dr * HERO_R,        h.y,
+      h.x + dr * (HERO_R - 10), h.y - 7,
+      h.x + dr * (HERO_R - 10), h.y + 7,
+    );
+
+    this._drawHPBar(h.x, h.y + HERO_R + 5, h.hp, h.maxHp, 34);
+
+    // Dash cooldown arc
+    if (h.dashCooldown > 0) {
+      const frac = h.dashCooldown / DASH_CD;
+      this.gfx.lineStyle(3, 0xffff44, 0.55);
+      this.gfx.beginPath();
+      this.gfx.arc(h.x, h.y, HERO_R + 9, -Math.PI / 2, -Math.PI / 2 + (1 - frac) * Math.PI * 2, false);
+      this.gfx.strokePath();
+    }
   }
 
-  private _drawHPBar(cx: number, y: number, hp: number, maxHp: number, w: number): void {
-    const r = Math.max(0, hp / maxHp);
-    this.gfx.fillStyle(0x111111, 0.7); this.gfx.fillRect(cx - w / 2, y, w, 5);
-    const c = r > 0.5 ? 0x44dd44 : r > 0.25 ? 0xdddd22 : 0xdd3333;
-    this.gfx.fillStyle(c, 1); this.gfx.fillRect(cx - w / 2, y, w * r, 5);
-  }
+  // ── HUD ───────────────────────────────────────────────────────────────────
 
-  // -- HUD -----------------------------------------------------------------
+  private _buildHUD(): void {
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 0.55);
+    bg.fillRect(0, 0, WORLD_W, 46);
 
-  private _buildStaticHUD(): void {
-    const hb = this.add.graphics();
-    hb.fillStyle(0x000000, 0.55); hb.fillRect(0, 0, WORLD_W, 44);
-    this.add.text(WORLD_W / 2, 8, 'AIR COMBAT', {
+    this.add.text(WORLD_W / 2, 8, 'SIEGE', {
       fontSize: '22px', color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5, 0);
+
     this.hudText = this.add.text(WORLD_W / 2, 30, '', {
       fontSize: '13px', color: '#cccccc',
     }).setOrigin(0.5, 0);
-    this.waveText = this.add.text(WORLD_W / 2, 58, '', {
-      fontSize: '16px', color: '#ff8844', fontStyle: 'bold',
+
+    this.waveText = this.add.text(WORLD_W / 2, 60, '', {
+      fontSize: '17px', color: '#ff8844', fontStyle: 'bold',
       stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5, 0).setAlpha(0);
-    this.add.text(PLAYER_BASE_X, BASE_Y - BASE_H / 2 - 22, 'YOUR BASE', {
-      fontSize: '13px', color: '#88ccff', stroke: '#000000', strokeThickness: 2,
+
+    this.add.text(BASE_X, BASE_Y - 150, 'YOUR BASE', {
+      fontSize: '13px', color: '#88ccff',
+      stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5, 1);
-    this.add.text(ENEMY_BASE_X, BASE_Y - BASE_H / 2 - 22, 'ENEMY BASE', {
-      fontSize: '13px', color: '#ff8888', stroke: '#000000', strokeThickness: 2,
+
+    this.add.text(WALL_X + 20, 20, 'ENEMY STRONGHOLD', {
+      fontSize: '13px', color: '#ff8888',
+      stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0, 0);
+
+    this.add.text(CORE_X, BASE_Y - CORE_R - 22, 'CORE', {
+      fontSize: '13px', color: '#ff4422',
+      stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5, 1);
+
+    for (const cd of CAMP_DATA) {
+      this.add.text(cd.x, cd.y - 52, cd.label, {
+        fontSize: '12px', color: '#ffcc44',
+        stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5, 1);
+    }
+
+    this.objectiveText = this.add.text(14, 54, '', {
+      fontSize: '12px', color: '#aaffaa',
+      stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0, 0);
+
     const hintBg = this.add.graphics();
-    hintBg.fillStyle(0x000000, 0.45); hintBg.fillRect(0, WORLD_H - 28, WORLD_W, 28);
+    hintBg.fillStyle(0x000000, 0.45);
+    hintBg.fillRect(0, WORLD_H - 28, WORLD_W, 28);
     this.add.text(WORLD_W / 2, WORLD_H - 14,
-      'L-Click/Drag: Select   R-Click: Move/Attack   A: Attack-Move   H: Hold   S: Stop   ESC: Retreat', {
+      'WASD / Click: Move   Space: Dash   Attack is automatic   Destroy the CORE to win   ESC: Retreat', {
       fontSize: '12px', color: '#aaaaaa',
     }).setOrigin(0.5, 0.5);
   }
 
-  private _updateHUD(): void {
-    const ap = this.units.filter(u => u.owner === 'player').length;
-    const ae = this.units.filter(u => u.owner === 'enemy').length;
-    const t  = Math.max(0, Math.ceil((WAVE_INTERVAL_MS - this.waveTimer) / 1000));
-    const mode = this.attackMoveMode ? '  [ATK-MOVE]' : '';
+  private _updateHUD(_time: number): void {
+    const gate = this.fortBlocks.find(b => b.type === 'gate');
+    const core = this.fortBlocks.find(b => b.type === 'core');
+    const dashStr  = this.hero.dashCooldown > 0
+      ? 'Dash: ' + (this.hero.dashCooldown / 1000).toFixed(1) + 's'
+      : 'Dash: Ready';
+    const waveNext = Math.max(0, Math.ceil((WAVE_MS - this.waveTimer) / 1000));
+
     this.hudText.setText(
-      'Yours: ' + ap + '  Base: ' + Math.ceil(this.playerBaseHp) + ' HP' + mode +
-      '  ||  Enemy: ' + ae + '  Base: ' + Math.ceil(this.enemyBaseHp) + ' HP  Next wave: ' + t + 's',
+      'Base: ' + Math.ceil(this.playerBaseHp) + ' HP' +
+      '  |  Hero: ' + Math.ceil(this.hero.hp) + ' HP' +
+      '  |  ' + dashStr +
+      '  |  Gate: ' + (gate?.destroyed ? 'BREACHED' : Math.ceil(gate?.hp ?? 0) + ' HP') +
+      '  |  Core: ' + Math.ceil(core?.hp ?? 0) + ' HP' +
+      '  |  Next wave: ' + waveNext + 's',
     );
+
+    const campsStr = this.camps.map(c => (c.cleared ? '[✓]' : '[ ]') + ' ' + c.label).join('   ');
+    this.objectiveText.setText('Optional: ' + campsStr);
   }
 
-  private _updateNameLabels(): void {
-    for (const unit of this.units) {
-      const lbl = this.unitNameTexts.get(unit.id);
-      if (lbl) lbl.setPosition(unit.x, unit.y - UNIT_RADIUS - 14);
-    }
-    for (const [id, lbl] of this.unitNameTexts.entries()) {
-      if (!this.units.find(u => u.id === id)) { lbl.destroy(); this.unitNameTexts.delete(id); }
-    }
-  }
-
-  // -- End combat ---------------------------------------------------------
+  // ── End combat ────────────────────────────────────────────────────────────
 
   private _endCombat(outcome: 'victory' | 'defeat' | 'retreat'): void {
-    if (this.combatDone) return;
-    this.combatDone = true;
+    if (this.sceneDone) return;
+    this.sceneDone = true;
+
+    const crystals = outcome === 'victory'
+      ? 10 + this.dangerLevel * 5 + this.campsCleared * CAMP_BONUS_EACH
+      : 0;
+
     const result: MissionResult = {
-      outcome: outcome === 'victory' ? 'success' : outcome === 'retreat' ? 'retreat' : 'failure',
-      resourcesGathered: outcome === 'victory' ? { acclivity_crystals: 10 + this.dangerLevel * 5 } : {},
-      objectivesCompleted: [],
-      heroStatusUpdates: [],
-      siteStateChange: outcome === 'victory' ? 'visited' : null,
+      outcome:             outcome === 'victory' ? 'success' : outcome === 'retreat' ? 'retreat' : 'failure',
+      resourcesGathered:   outcome === 'victory' ? { acclivity_crystals: crystals } : {},
+      heroStatusUpdates:   [],
+      objectivesCompleted: this.camps.filter(c => c.cleared).map(c => c.id),
+      siteStateChange:     outcome === 'victory' ? 'visited' : null,
     };
     this.gsm.setMissionResult(result);
-    this._showResultOverlay(outcome);
+    this._showResultOverlay(outcome, crystals);
   }
 
-  private _showResultOverlay(outcome: 'victory' | 'defeat' | 'retreat'): void {
+  private _showResultOverlay(outcome: 'victory' | 'defeat' | 'retreat', crystals: number): void {
     const ov = this.add.graphics();
-    ov.fillStyle(0x000000, 0.7); ov.fillRect(0, 0, WORLD_W, WORLD_H);
-    const titles: Record<string, string> = { victory: 'VICTORY', defeat: 'DEFEAT', retreat: 'RETREATED' };
-    const clrs:   Record<string, string> = { victory: '#44ff88', defeat: '#ff4444', retreat: '#ffcc44' };
-    this.add.text(WORLD_W / 2, WORLD_H / 2 - 60, titles[outcome]!, {
-      fontSize: '64px', fontStyle: 'bold', color: clrs[outcome]!,
+    ov.fillStyle(0x000000, 0.72);
+    ov.fillRect(0, 0, WORLD_W, WORLD_H);
+
+    const titles = { victory: 'VICTORY', defeat: 'DEFEAT', retreat: 'RETREATED' } as const;
+    const colors = { victory: '#44ff88', defeat: '#ff4444', retreat: '#ffcc44' } as const;
+
+    this.add.text(WORLD_W / 2, WORLD_H / 2 - 70, titles[outcome], {
+      fontSize: '64px', fontStyle: 'bold', color: colors[outcome],
       stroke: '#000000', strokeThickness: 4,
     }).setOrigin(0.5);
-    const msgs: Record<string, string> = {
-      victory: 'Enemy defeated! Resources gained.',
+
+    const msgs = {
+      victory: `Stronghold destroyed!  +${crystals} acclivity crystals`,
       defeat:  'Your base was destroyed.',
-      retreat: 'Withdrew from combat.',
-    };
-    this.add.text(WORLD_W / 2, WORLD_H / 2 + 10, msgs[outcome]!, {
+      retreat: 'Withdrew from the siege.',
+    } as const;
+    this.add.text(WORLD_W / 2, WORLD_H / 2 + 10, msgs[outcome], {
       fontSize: '22px', color: '#ffffff',
     }).setOrigin(0.5);
-    this.add.text(WORLD_W / 2, WORLD_H / 2 + 70, 'Click to return to map', {
+
+    if (outcome === 'victory' && this.campsCleared > 0) {
+      this.add.text(WORLD_W / 2, WORLD_H / 2 + 46,
+        `Camps cleared: ${this.campsCleared}  (+${this.campsCleared * CAMP_BONUS_EACH} bonus crystals)`, {
+        fontSize: '16px', color: '#aaffaa',
+      }).setOrigin(0.5);
+    }
+
+    this.add.text(WORLD_W / 2, WORLD_H / 2 + 94, 'Click to return to map', {
       fontSize: '18px', color: '#aaaaaa',
     }).setOrigin(0.5);
-    this.time.delayedCall(400, () => {
-      this.input.once('pointerdown', () => { this.scene.start('WorldMapScene', this.services); });
+
+    this.time.delayedCall(500, () => {
+      this.input.once('pointerdown', () => {
+        this.scene.start('WorldMapScene', this.services);
+      });
     });
   }
 
-  // -- Background ----------------------------------------------------------
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
-  private _drawStaticBackground(): void {
-    this.add.image(WORLD_W / 2, WORLD_H / 2, AIR_BACKGROUND_TEXTURE_KEY)
-      .setDisplaySize(WORLD_W, WORLD_H)
-      .setDepth(-10);
-
-    const overlay = this.add.graphics().setDepth(-9);
-    overlay.fillStyle(0x081018, 0.18);
-    overlay.fillRect(0, 0, WORLD_W, WORLD_H);
+  private _nearestEnemyTo(pos: { x: number; y: number }, range: number): EnemyUnit | null {
+    let best: EnemyUnit | null = null;
+    let bestD = range;
+    for (const e of this.enemies) {
+      const d = this._dist(pos, e);
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    return best;
   }
 
-  // -- Utilities -----------------------------------------------------------
+  private _drawHPBar(cx: number, y: number, hp: number, maxHp: number, w: number): void {
+    const r = Math.max(0, hp / maxHp);
+    this.gfx.fillStyle(0x111111, 0.7);
+    this.gfx.fillRect(cx - w / 2, y, w, 5);
+    const c = r > 0.5 ? 0x44dd44 : r > 0.25 ? 0xdddd22 : 0xdd3333;
+    this.gfx.fillStyle(c, 1);
+    this.gfx.fillRect(cx - w / 2, y, w * r, 5);
+  }
 
   private _dist(a: { x: number; y: number }, b: { x: number; y: number }): number {
     const dx = a.x - b.x, dy = a.y - b.y;
     return Math.sqrt(dx * dx + dy * dy);
-  }
-
-  private _prng(seed: number): number {
-    const x = Math.sin(seed + 1) * 10000;
-    return x - Math.floor(x);
   }
 }
